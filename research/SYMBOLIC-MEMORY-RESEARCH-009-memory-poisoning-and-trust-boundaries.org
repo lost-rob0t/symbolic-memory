@@ -1,5 +1,5 @@
 #+title: SYMBOLIC-MEMORY-RESEARCH-009 Memory Poisoning and Trust Boundaries
-#+status: PENDING-HUMAN-REVIEW
+#+status: APPROVED-FOR-DESIGN
 #+repo: lost-rob0t/symbolic-memory
 #+date: 2026-08-29
 
@@ -271,6 +271,7 @@ The safest useful default is:
 
 * Human gate
 
-Current state: =PENDING-HUMAN-REVIEW=
+Current state: =APPROVED-FOR-DESIGN=
 
-No design or implementation approval has been performed by ADARD/ARARD.
+Approved by the human operator on 2026-08-29.
+Implementation approval has not been granted.
