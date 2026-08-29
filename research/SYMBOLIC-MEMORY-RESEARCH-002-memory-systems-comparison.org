@@ -16,12 +16,99 @@ The core recommendation is a hybrid symbolic memory architecture with:
 - explicit scope and lifetime;
 - semantic, episodic, procedural, and textual memory kinds;
 - temporal validity and provenance;
-- a synthesized working-memory view;
+- persistent long-term memory directly recallable by the active LLM/agent;
+- a synthesized bounded working-memory view;
+- explicit full-corpus search across all memory the caller is authorized to read;
 - explicit supersession rather than destructive overwrite;
 - optional semantic retrieval as a fallback, not the source of truth;
 - learned or model-proposed retrieval strategies represented as auditable Prolog rules.
 
 This document is research only. It is not approved for design or implementation.
+
+* Long-term memory versus working memory
+
+symbolic-memory MUST NOT treat the generated working-memory set as the total memory available to an LLM.
+
+The two concepts serve different purposes:
+
+- =working memory= is a bounded, relevance-ranked context assembled for the immediate interaction;
+- =long-term memory= is the durable memory corpus that persists outside the model context window and remains explicitly searchable and queryable by the LLM/agent.
+
+An LLM/agent should therefore be able to operate in two complementary modes:
+
+1. receive a small synthesized working set automatically;
+2. deliberately query or search long-term memory whenever the current task requires evidence not present in that working set.
+
+The long-term corpus may include:
+
+- active semantic facts;
+- episodic/source observations;
+- full-text memories;
+- procedural memories;
+- project-local durable memories;
+- permitted global memories;
+- meta-memory and retrieval rules where authorized;
+- archived or superseded memories when historical search is explicitly requested;
+- provenance and derivation records.
+
+The default context compiler should avoid flooding the model with this entire corpus, but the retrieval interface must not hide it from the model.
+
+Illustrative distinction:
+
+#+begin_src prolog
+working_memory(Session, Query, Memories) :-
+    visible_long_term_memory(Session, Corpus),
+    rank_for_context(Query, Corpus, Ranked),
+    fit_context_budget(Session, Ranked, Memories).
+
+long_term_recall(Session, Query, Results) :-
+    visible_long_term_memory(Session, Corpus),
+    search_memory_corpus(Query, Corpus, Results).
+#+end_src
+
+The second path is not constrained to whatever happened to be selected into =working_memory/3=.
+
+* Full memory corpus search
+
+The MCP/API surface should include an explicit search path capable of searching the full memory corpus visible to the caller.
+
+"Full corpus" means all memory records the principal is authorized to inspect, not an authorization bypass. Project isolation, trust policy, and global-memory permissions still apply.
+
+Useful search modes include:
+
+- symbolic pattern/query search;
+- exact fact lookup;
+- full-text search;
+- provenance/source search;
+- temporal/historical search;
+- relation/graph traversal;
+- optional semantic/vector-assisted search;
+- exhaustive corpus scan for debugging, auditing, or research.
+
+A caller should be able to choose whether the search targets:
+
+- current valid memory only;
+- current + archived memory;
+- historical/superseded memory;
+- one project;
+- one session lineage;
+- permitted global memory;
+- all scopes visible to the principal.
+
+Illustrative API semantics:
+
+#+begin_src prolog
+memory_search(Context,
+              Query,
+              [scope(all_visible),
+               include(active),
+               include(archived),
+               include(text),
+               include(symbolic)],
+              Results).
+#+end_src
+
+The implementation may use indexes to avoid physically scanning every record for ordinary searches. Semantically, however, the search must behave as a query over the full authorized corpus rather than only a precomputed attention set.
 
 * ChatGPT memory / Dreaming
 
@@ -61,7 +148,8 @@ Letta exposes persistent core memory blocks that remain in context and archival 
 Useful ideas to adopt:
 
 - a small bounded always-visible memory set;
-- a larger searchable archival store;
+- a larger searchable archival/long-term store;
+- explicit model-initiated recall from long-term memory;
 - dynamic attachment of context to an active agent/session;
 - separation between persistent agent state and bulk historical memory.
 
@@ -76,9 +164,13 @@ working_set(Session, Memories) :-
     findall(M,
             visible_in_working_set(Session, M),
             Memories).
+
+recall_from_corpus(Session, Query, Memories) :-
+    authorized_memory_corpus(Session, Corpus),
+    search_memory_corpus(Query, Corpus, Memories).
 #+end_src
 
-The important change is that =working_set/2= should be derived from policy, not manually copied text blocks.
+The important change is that =working_set/2= should be derived from policy, not manually copied text blocks, while =recall_from_corpus/3= remains available to the LLM for deliberate long-term recall.
 
 * LangMem
 
@@ -90,7 +182,8 @@ Useful ideas to adopt:
 - episodic memory: prior experiences/events;
 - procedural memory: instructions or strategies;
 - namespaces for isolation and multi-level scoping;
-- direct lookup, metadata filtering, and semantic search as complementary retrieval modes.
+- direct lookup, metadata filtering, and semantic search as complementary retrieval modes;
+- explicit querying of persistent long-term memory outside immediate model context.
 
 Prolog reinterpretation:
 
@@ -117,7 +210,8 @@ Useful ideas to adopt:
 - raw storage and inferred memory as distinct artifacts;
 - expiration as first-class metadata;
 - no requirement that every input be reduced to a fact;
-- graph/linking can improve retrieval but should not define truth.
+- graph/linking can improve retrieval but should not define truth;
+- persistent memory remains searchable independently from the context currently supplied to a model.
 
 symbolic-memory should go further by making the inferred representation a typed Prolog term with explicit provenance.
 
@@ -132,7 +226,8 @@ Useful ideas to adopt:
 - facts may become invalid without erasing history;
 - retrieval combines several strategies rather than relying only on vector similarity;
 - group/project isolation is explicit;
-- provenance links derived facts back to source episodes.
+- provenance links derived facts back to source episodes;
+- historical memory remains queryable even when excluded from ordinary current-context recall.
 
 Prolog analogue:
 
@@ -228,19 +323,23 @@ meta_memory(RuleId,
 - A single append-only text notebook.
 - A system where project scope is merely a ranking boost rather than an enforceable boundary.
 - A system where synthesized summaries replace source provenance.
+- A system where the LLM can only see memories preselected into its working set and cannot deliberately search long-term memory.
 - A rule generator that creates a new predicate after every interaction.
 
 * Recommended architecture direction
 
-The research currently favors five logical planes:
+The research currently favors six logical planes:
 
 1. source plane: immutable or versioned raw episodes/text;
 2. fact plane: symbolic projections and relations;
 3. temporal plane: validity, supersession, contradiction;
-4. attention plane: working-set selection for the current session;
-5. meta-memory plane: retrieval rules, indexing rules, and optimization history.
+4. long-term corpus plane: the complete authorized durable memory corpus available for explicit recall/search;
+5. attention plane: bounded working-set selection for the current session;
+6. meta-memory plane: retrieval rules, indexing rules, and optimization history.
 
-All five should be queryable through Prolog.
+All six should be queryable through Prolog.
+
+The long-term corpus plane and attention plane must remain distinct. The attention plane is an optimization for model context, not an access-control boundary and not a replacement for long-term recall.
 
 * Sources consulted
 
