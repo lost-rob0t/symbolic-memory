@@ -1,0 +1,386 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-005 MCP Contract and Authority Model
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+How should the symbolic-memory MCP server expose scoped memory, retrieval, provenance, and rule evolution while preventing project/global memory poisoning and authority escalation?
+
+* Research conclusion
+
+The MCP surface should make memory authority explicit. Read access, project mutation, global mutation, rule proposal, and rule activation are materially different capabilities and should not be collapsed into one generic Prolog execution tool.
+
+The server should target MCP protocol revision =2026-07-28= for new implementations. That revision removes protocol-level sessions and makes requests stateless. symbolic-memory should therefore carry session/project identity explicitly in tool arguments and resource URIs rather than relying on hidden transport session state.
+
+This document is research only and is not approved for implementation.
+
+* MCP architecture direction
+
+Use MCP resources for inspectable memory views and durable read surfaces.
+Use MCP tools for operations that query, mutate, explain, optimize, or change authority-sensitive state.
+
+Avoid exposing arbitrary =assertz/1=, =retract/1=, =consult/1=, or unrestricted Prolog evaluation as normal model-facing tools.
+
+* Explicit context handles
+
+Because MCP 2026-07-28 is sessionless at the protocol layer, application state should use explicit handles.
+
+Suggested model:
+
+#+begin_src prolog
+memory_context(ContextId,
+               caller(Caller),
+               session(Session),
+               project(Project),
+               isolation(Isolation),
+               created_at(CreatedAt),
+               expires_at(ExpiresAt)).
+#+end_src
+
+Possible MCP flow:
+
+1. caller provides or creates a project identifier;
+2. =memory_context_open= returns a context handle;
+3. subsequent calls pass =context_id= explicitly;
+4. server validates the handle against caller authority and expiry;
+5. no authorization state is inferred merely from a previous request on the same connection.
+
+The context handle is convenience state, not an authorization token by itself.
+
+* Proposed resource URI space
+
+Research recommendation:
+
+#+begin_example
+memory://global/view
+memory://global/facts
+memory://project/<project-id>/view
+memory://project/<project-id>/facts
+memory://project/<project-id>/episodes
+memory://project/<project-id>/rules
+memory://session/<session-id>/working-set
+memory://memory/<memory-id>
+memory://rule/<rule-id>
+memory://audit/<event-id>
+#+end_example
+
+Resource reads should return structured data with provenance and status, not only prose summaries.
+
+* Resource semantics
+
+Resources are suitable for:
+
+- current synthesized memory view;
+- project/global fact listings;
+- individual memory records;
+- rule metadata and evaluation history;
+- audit events;
+- read-only explanation artifacts;
+- current working-set snapshots.
+
+Resource visibility must be authorization-dependent. A caller without global-memory permission should not even receive global-only resources in discovery/listing where avoidable.
+
+Cache metadata should default to private for user/project-specific memory. Current MCP revisions support cache hints for list/read results; symbolic-memory should not accidentally make personalized memory publicly cacheable.
+
+* Core tool surface under research
+
+** Context / scope
+
+- =memory_context_open=
+- =memory_context_close=
+- =memory_project_resolve=
+
+** Store / mutate
+
+- =memory_store=
+- =memory_supersede=
+- =memory_forget=
+- =memory_promote=
+- =memory_demote=
+
+** Retrieve
+
+- =memory_recall=
+- =memory_query=
+- =memory_explain=
+- =memory_history=
+- =memory_contradictions=
+
+** Rule/meta-memory
+
+- =memory_rule_propose=
+- =memory_rule_validate=
+- =memory_rule_test=
+- =memory_rule_benchmark=
+- =memory_rule_activate=
+- =memory_rule_rollback=
+
+** Optimization
+
+- =memory_optimize_analyze=
+- =memory_optimize_apply=
+
+The split between analyze and apply is intentional: inspecting an optimization opportunity should require less authority than changing the active rule set.
+
+* memory_store contract
+
+The normal write API should accept an explicit representation kind.
+
+Illustrative input:
+
+#+begin_src json
+{
+  "context_id": "ctx_123",
+  "scope": {"project": "project_7f3a"},
+  "lifetime": "long_term",
+  "kind": "fact",
+  "value": {
+    "functor": "uses_language",
+    "args": ["symbolic_memory", "prolog"]
+  },
+  "source": "model_observation",
+  "confidence": 0.9
+}
+#+end_src
+
+Full text is also allowed:
+
+#+begin_src json
+{
+  "kind": "text",
+  "value": "full original note",
+  "symbolic_projection": ["memory-id-1", "memory-id-2"]
+}
+#+end_src
+
+The server should parse/validate symbolic terms itself instead of accepting raw Prolog source for ordinary facts.
+
+* memory_recall contract
+
+Recall should return both selected memories and explanation metadata.
+
+Illustrative output shape:
+
+#+begin_src json
+{
+  "memories": [],
+  "proof": {
+    "scope_policy": "project_inherits_global",
+    "ruleset": "ruleset_17",
+    "filtered": {
+      "expired": 2,
+      "superseded": 1,
+      "unauthorized": 4
+    }
+  }
+}
+#+end_src
+
+This makes retrieval debuggable instead of presenting a magic relevance result.
+
+* Prolog query escape hatch
+
+A constrained symbolic query tool may be valuable:
+
+- =memory_query=
+
+It should accept a query AST or a narrow Prolog term grammar and execute only against exported safe predicates.
+
+It should not be a general SWI-Prolog REPL.
+
+Potential safe logical surface:
+
+#+begin_src prolog
+queryable(memory_fact/8).
+queryable(current_memory/1).
+queryable(supersedes/4).
+queryable(contradiction/3).
+queryable(memory_kind/2).
+queryable(memory_scope/2).
+queryable(memory_provenance/2).
+queryable(related_memory/2).
+#+end_src
+
+The exact queryable predicate set remains an open question.
+
+* Authority model
+
+Research recommendation: capabilities should be composable and scope-aware.
+
+#+begin_src prolog
+capability(memory_read).
+capability(memory_write_session).
+capability(memory_write_project).
+capability(memory_write_global).
+capability(memory_forget).
+capability(rule_propose).
+capability(rule_test).
+capability(rule_activate_project).
+capability(rule_activate_global).
+capability(memory_admin).
+#+end_src
+
+A common model/agent should usually receive:
+
+- read permitted scopes;
+- session writes;
+- selected project writes;
+- possibly rule proposal.
+
+It should not automatically receive:
+
+- global writes;
+- global rule activation;
+- deletion of audit history;
+- arbitrary project access.
+
+* Scope checks are logical invariants
+
+Authorization should be checked inside the Prolog domain model as well as transport middleware.
+
+#+begin_src prolog
+may_write(Caller, project(Project)) :-
+    granted(Caller, memory_write_project, project(Project)).
+
+may_write(Caller, global) :-
+    granted(Caller, memory_write_global, global).
+
+store_memory(Caller, Scope, Memory) :-
+    may_write(Caller, Scope),
+    valid_memory(Memory),
+    persist_memory(Scope, Memory).
+#+end_src
+
+This avoids a situation where a new MCP endpoint accidentally bypasses authorization because only HTTP routing knew the policy.
+
+* Global memory poisoning
+
+Global memory has the largest blast radius and should have stronger provenance requirements.
+
+Potential policy:
+
+#+begin_src prolog
+global_write_allowed(Memory) :-
+    trusted_provenance(Memory),
+    \+ unresolved_contradiction(Memory).
+#+end_src
+
+Model inference should normally enter global memory as a candidate, not as authoritative fact.
+
+User-explicit durable preferences may be permitted through a separate trusted path depending on deployment policy.
+
+* Project isolation
+
+Project-only behavior must be enforceable independently of caller prompting.
+
+#+begin_src prolog
+can_read_scope(Context, global) :-
+    context_project(Context, Project),
+    project_policy(Project, inherits_global).
+
+can_read_scope(Context, project(Project)) :-
+    context_project(Context, Project).
+#+end_src
+
+A model cannot prompt itself out of an =isolated= project.
+
+* Rule authority
+
+Rule proposal and rule activation must be distinct capabilities.
+
+A model may be trusted to say "this pattern should become a rule" without being trusted to immediately install executable logic.
+
+#+begin_src prolog
+may_propose_rule(Caller, Scope) :-
+    granted(Caller, rule_propose, Scope).
+
+may_activate_rule(Caller, project(Project)) :-
+    granted(Caller, rule_activate_project, project(Project)).
+
+may_activate_rule(Caller, global) :-
+    granted(Caller, rule_activate_global, global).
+#+end_src
+
+The optimizer can therefore be genuinely self-improving in deployments that grant activation authority while remaining proposal-only in stricter deployments.
+
+* MCP authorization
+
+For remote HTTP deployment, current MCP authorization guidance is based on OAuth and resource-bound access tokens. Tokens intended for the MCP server must be validated for the correct audience/resource, and inbound tokens should not simply be passed through to downstream services.
+
+symbolic-memory should additionally map OAuth/server scopes to domain capabilities rather than treating successful authentication as blanket memory authority.
+
+Example conceptual scopes:
+
+#+begin_example
+memory.read
+memory.write.session
+memory.write.project
+memory.write.global
+memory.rules.propose
+memory.rules.activate.project
+memory.rules.activate.global
+#+end_example
+
+Exact OAuth scope naming is still under research.
+
+* STDIO deployment
+
+For local stdio MCP clients, authorization may come from process/environment configuration rather than HTTP OAuth.
+
+The Prolog capability model should remain identical regardless of transport. Transport determines identity; the memory engine determines authority.
+
+* Audit requirements
+
+Every mutating tool call should record:
+
+- caller identity;
+- tool/action;
+- scope;
+- target memory/rule;
+- source/provenance;
+- timestamp;
+- old/new version where applicable;
+- context handle/project;
+- result or rejection reason.
+
+Retrieval events used for self-optimization may be sampled/aggregated for scale, but rule activation and memory mutation should not be unaudited.
+
+* Current MCP revision implications
+
+Research against the MCP =2026-07-28= revision adds several implementation constraints worth preserving in future design:
+
+- protocol requests are sessionless;
+- explicit application handles are preferred where application state is needed;
+- new implementations should not build around deprecated sampling/roots/logging features;
+- tool input/output schemas can use full JSON Schema 2020-12;
+- tool structured output can be richer and should be validated;
+- resource/list results include cache semantics;
+- subscription mechanisms can notify clients when memory resources/views change.
+
+The MCP layer should remain thin: all memory semantics and policy should live below it in Prolog.
+
+* Sources consulted
+
+- Model Context Protocol, 2026-07-28 specification release documentation.
+- MCP 2026-07-28 release candidate documentation.
+- Model Context Protocol authorization/security documentation.
+- MCP resource and tool specification documentation.
+- MCP TypeScript SDK v2 documentation for the 2026-07-28 revision.
+- Graphiti MCP server documentation as an existing graph-memory MCP reference.
+
+* Open questions
+
+- Should context handles be persisted or purely short-lived?
+- What MCP resource views are useful enough to expose in v1 without duplicating every tool result?
+- Should project-level rule activation be automatically grantable while global activation remains privileged?
+- Is =memory_query= necessary in v1, or can specific retrieval tools cover the initial surface?
+- Should =memory_store= accept a symbolic JSON AST only, or also a safe textual Prolog term syntax?
+- How should clients discover a canonical project ID when they only know a Git URL or local path?
+- Which memory change notifications deserve resource subscriptions?
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
