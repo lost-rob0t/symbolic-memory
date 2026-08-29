@@ -1,5 +1,5 @@
 #+title: SYMBOLIC-MEMORY-RESEARCH-002 Memory Systems Comparison
-#+status: PENDING-HUMAN-REVIEW
+#+status: APPROVED-FOR-DESIGN
 #+repo: lost-rob0t/symbolic-memory
 #+date: 2026-08-29
 
@@ -23,7 +23,7 @@ The core recommendation is a hybrid symbolic memory architecture with:
 - optional semantic retrieval as a fallback, not the source of truth;
 - learned or model-proposed retrieval strategies represented as auditable Prolog rules.
 
-This document is research only. It is not approved for design or implementation.
+This document has been approved by the human operator for design. It is not approved for implementation.
 
 * Long-term memory versus working memory
 
@@ -358,6 +358,7 @@ The long-term corpus plane and attention plane must remain distinct. The attenti
 
 * Human gate
 
-Current state: =PENDING-HUMAN-REVIEW=
+Current state: =APPROVED-FOR-DESIGN=
 
-No design or implementation approval has been performed by ADARD/ARARD.
+Approved by the human operator on 2026-08-29.
+Implementation approval has not been granted.
