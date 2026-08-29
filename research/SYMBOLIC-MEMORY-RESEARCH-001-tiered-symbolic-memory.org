@@ -1,5 +1,5 @@
 #+title: SYMBOLIC-MEMORY-RESEARCH-001 Tiered Symbolic Memory Architecture
-#+status: PENDING-HUMAN-REVIEW
+#+status: APPROVED-FOR-DESIGN
 #+repo: lost-rob0t/symbolic-memory
 #+date: 2026-08-29
 
@@ -231,11 +231,9 @@ Minimum requirements:
 
 * ADARD governance
 
-This document is research only.
+This document was approved by the human operator for design on 2026-08-29.
 
-ADARD/ARARD may revise this document and recommend a next state, but MUST NOT approve it for design or implementation.
-Only the human operator may change its status to =APPROVED-FOR-DESIGN=, =APPROVED-FOR-IMPLEMENTATION=, or =REJECTED=.
-Every research pass must return the updated document to the human operator.
+ADARD/ARARD may continue to revise supporting research, but MUST NOT independently change this document to =APPROVED-FOR-IMPLEMENTATION= or otherwise bypass the human gate.
 
 * Open questions for the next pass
 
@@ -258,6 +256,7 @@ Every research pass must return the updated document to the human operator.
 
 * Human gate
 
-Current state: =PENDING-HUMAN-REVIEW=
+Current state: =APPROVED-FOR-DESIGN=
 
-No design or implementation approval has been performed by ADARD/ARARD.
+Approved by the human operator on 2026-08-29.
+Implementation approval has not been granted.
