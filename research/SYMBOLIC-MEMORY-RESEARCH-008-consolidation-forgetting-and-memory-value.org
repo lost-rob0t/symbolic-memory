@@ -1,0 +1,215 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-008 Consolidation, Forgetting, and Memory Value
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+When should raw interaction evidence become durable symbolic memory, when should it remain ephemeral, and how should obsolete or low-value memories be demoted without destroying provenance?
+
+* Research conclusion
+
+symbolic-memory should separate *capture* from *consolidation*.
+
+Every useful interaction does not deserve immediate conversion into a durable predicate or rule. Eager extraction creates noise, increases poisoning surface, and encourages overfitting retrieval policy to transient interactions.
+
+The recommended lifecycle is:
+
+1. capture raw evidence cheaply;
+2. retain it in a bounded working/episodic layer;
+3. detect recurrence, importance, explicit user intent, or task utility;
+4. consolidate selected evidence into semantic/project/global memory;
+5. supersede or demote stale conclusions without destroying source history;
+6. periodically reevaluate memory value from observed use and correctness.
+
+* Evidence from current systems
+
+RecMem (ACL Findings 2026) reports that memory extraction need not happen on every interaction. It delays expensive consolidation until semantically similar observations recur, reducing construction cost while improving accuracy in its experiments.
+
+This is strongly compatible with symbolic-memory because predicate creation and especially rule creation should be sparse events.
+
+Recent forgetting-aware benchmark work also shows that remembering obsolete information is a real failure mode. A memory system must know not only what to retrieve, but what *not* to present as current truth.
+
+* Proposed memory lifecycle
+
+#+begin_src prolog
+memory_state(raw).
+memory_state(episodic).
+memory_state(candidate_semantic).
+memory_state(active_semantic).
+memory_state(superseded).
+memory_state(archived).
+memory_state(rejected).
+#+end_src
+
+These states should not be conflated with scope or lifetime.
+
+A project-local long-term memory may be =active_semantic=, =superseded=, or =archived=.
+
+* Capture layer
+
+The capture layer should preserve source text or structured event payloads with provenance and timestamps.
+
+Example:
+
+#+begin_src prolog
+observation(obs_17,
+            project(symbolic_memory),
+            user,
+            "Use Prolog for the symbolic memory server.",
+            [observed_at(T), trust(user_direct)]).
+#+end_src
+
+Raw observations are evidence. They are not automatically authoritative semantic facts.
+
+* Consolidation triggers
+
+A consolidation candidate may be created when one or more of the following hold:
+
+- the user explicitly says to remember something;
+- the same semantic fact recurs across interactions;
+- a fact is repeatedly retrieved successfully;
+- a fact materially changes future task execution;
+- a project architecture or policy decision is repeated or confirmed;
+- repeated failures reveal a stable negative lesson;
+- an episodic cluster supports a reusable abstraction;
+- a memory has high reliability and high task utility.
+
+Illustrative rules:
+
+#+begin_src prolog
+should_consolidate(Memory) :-
+    explicit_memory_request(Memory).
+
+should_consolidate(Memory) :-
+    recurrence_count(Memory, N),
+    consolidation_recurrence_threshold(T),
+    N >= T,
+    reliable(Memory).
+
+should_consolidate(Memory) :-
+    retrieval_usage(Memory, Uses),
+    Uses >= 3,
+    downstream_utility(Memory, high).
+#+end_src
+
+Threshold values remain an implementation/design question and are not approved here.
+
+* Memory value
+
+The system should not use semantic similarity alone as a proxy for memory value.
+
+A useful symbolic value model can remain interpretable:
+
+#+begin_src prolog
+memory_value(Memory, Score) :-
+    reliability_score(Memory, Reliability),
+    task_utility_score(Memory, Utility),
+    usage_score(Memory, Usage),
+    recency_score(Memory, Recency),
+    authority_score(Memory, Authority),
+    contradiction_penalty(Memory, Contradiction),
+    Score is Reliability + Utility + Usage + Recency + Authority - Contradiction.
+#+end_src
+
+The exact formula should be learned or tuned only after a benchmark corpus exists. The important architecture point is that each factor remains inspectable.
+
+* Forgetting is not deletion
+
+Forgetting should usually mean removing a memory from normal current-context retrieval, not erasing historical evidence.
+
+Recommended distinctions:
+
+- =expire=: temporary memory is no longer eligible after TTL/deadline;
+- =demote=: reduce retrieval priority while preserving current validity;
+- =supersede=: a newer fact replaces it for current-state queries;
+- =invalidate=: evidence or derivation is discovered to be wrong;
+- =archive=: preserve history but remove from ordinary retrieval;
+- =delete=: physically erase data only when required by policy/user request.
+
+This avoids the bad design where stale facts either remain active forever or disappear with no forensic trail.
+
+* Supersession
+
+Supersession should be explicit and directional.
+
+#+begin_src prolog
+supersedes(new_fact_id, old_fact_id, Reason, Timestamp).
+#+end_src
+
+A current-state query should prefer the newest valid member of a supersession chain. Historical queries must still expose earlier states.
+
+* Contradiction-aware consolidation
+
+A candidate semantic memory should not be consolidated blindly when it conflicts with an active higher-authority fact.
+
+Possible outcomes:
+
+- reject candidate;
+- mark unresolved contradiction;
+- create a temporal transition;
+- create parallel source-specific claims;
+- ask the caller/model for clarification;
+- preserve as episodic evidence only.
+
+* Rules require a higher bar than facts
+
+Rule consolidation must be substantially more conservative than fact consolidation.
+
+A new rule should require repeated evidence of a reusable relation or retrieval strategy and benchmark evidence that the rule improves behavior without violating invariants.
+
+Recurrence of text alone is not sufficient for rule creation.
+
+* Background versus hot-path consolidation
+
+The architecture should permit both:
+
+** Hot path
+
+For explicit user directives or immediately critical project decisions.
+
+** Deferred/background style processing
+
+For recurrence detection, duplicate merging, rule candidate generation, and lower-priority semantic consolidation.
+
+The MCP server itself should expose deterministic operations for these transitions even if a client or worker decides when to invoke them.
+
+* Short-term memory bounds
+
+Short-term/session memory should have explicit bounds based on:
+
+- age;
+- count;
+- token/byte budget;
+- task completion state;
+- access frequency;
+- caller-provided lifetime.
+
+Eviction from short-term memory must not accidentally delete a durable observation that has already been promoted.
+
+* Research recommendation
+
+The initial architecture should include:
+
+- raw observations;
+- episodic/session records;
+- semantic memory as an explicit promotion;
+- explicit supersession/invalidation states;
+- sparse rule creation;
+- a memory-value predicate with interpretable factors;
+- consolidation decisions logged as first-class events.
+
+The implementation should not eagerly run an LLM over every write just to manufacture summaries or facts.
+
+* Sources consulted
+
+- Dai et al., RecMem: Recurrence-based Memory Consolidation for Efficient and Effective Long-Running LLM Agents, Findings of ACL 2026.
+- Uddin et al., From Recall to Forgetting: Benchmarking Long-Term Memory for Personalized Agents / Memora, 2026.
+- Chen and Cheng, Learning What to Remember: A Cognitively Grounded Multi-Factor Value Model for Agentic Memory, 2026.
+- LangChain memory documentation distinguishing semantic, episodic, and procedural long-term memory and hot-path/background updates.
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
