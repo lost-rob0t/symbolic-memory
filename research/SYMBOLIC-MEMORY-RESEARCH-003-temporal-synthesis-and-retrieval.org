@@ -1,5 +1,5 @@
 #+title: SYMBOLIC-MEMORY-RESEARCH-003 Temporal Synthesis and Retrieval
-#+status: PENDING-HUMAN-REVIEW
+#+status: APPROVED-FOR-DESIGN
 #+repo: lost-rob0t/symbolic-memory
 #+date: 2026-08-29
 
@@ -19,7 +19,7 @@ The key split is:
 - working memory is a derived view selected for a concrete session/task;
 - summaries are cached views, never the sole source of truth.
 
-This is research only and is not approved for implementation.
+This document has been approved by the human operator for design. It is not approved for implementation.
 
 * Why temporal state is mandatory
 
@@ -285,6 +285,7 @@ The memory engine should eventually be tested against cases such as:
 
 * Human gate
 
-Current state: =PENDING-HUMAN-REVIEW=
+Current state: =APPROVED-FOR-DESIGN=
 
-No design or implementation approval has been performed by ADARD/ARARD.
+Approved by the human operator on 2026-08-29.
+Implementation approval has not been granted.
