@@ -1,0 +1,290 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-003 Temporal Synthesis and Retrieval
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+How should symbolic-memory keep memories current, resolve contradictions, synthesize a useful working view, and still preserve history and provenance?
+
+* Research conclusion
+
+The system should not model memory as a bag of facts with a relevance score. It should model memory as a temporal, provenance-carrying knowledge base from which context-specific views are derived.
+
+The key split is:
+
+- source observations are historical evidence;
+- symbolic facts are interpretations of evidence;
+- current truth is a query over temporal/supersession state;
+- working memory is a derived view selected for a concrete session/task;
+- summaries are cached views, never the sole source of truth.
+
+This is research only and is not approved for implementation.
+
+* Why temporal state is mandatory
+
+A durable memory system inevitably receives statements that later become stale, narrower, corrected, or contradictory. Current ChatGPT memory documentation explicitly treats staleness and contradictions as core memory problems. Graphiti/Zep similarly treats time as first-class and retains historical relationships rather than flattening everything into the latest summary.
+
+symbolic-memory should therefore distinguish at least two clocks:
+
+1. valid time: when the remembered proposition is true in the world/project;
+2. system time: when the memory system learned, changed, or superseded it.
+
+#+begin_src prolog
+memory_fact(Id,
+            Scope,
+            Proposition,
+            valid_time(ValidFrom, ValidUntil),
+            system_time(ObservedAt, SupersededAt),
+            Provenance,
+            Confidence).
+#+end_src
+
+An unknown end time should be explicit, not represented by absence.
+
+#+begin_src prolog
+open_interval(infinity).
+#+end_src
+
+* Supersession instead of destructive overwrite
+
+A correction should normally create a new fact and link it to the old one.
+
+#+begin_src prolog
+supersedes(NewId, OldId, Reason, At).
+
+current_memory(Id) :-
+    memory_fact(Id, _, _, _, system_time(_, infinity), _, _),
+    \+ supersedes(_, Id, _, _).
+#+end_src
+
+This allows the system to answer both:
+
+- what is currently believed?
+- what did the system believe at time T, and why?
+
+Destructive mutation should be reserved for user-requested deletion/privacy operations, not ordinary factual correction.
+
+* Contradictions
+
+Contradiction detection should not automatically choose a winner when the evidence is genuinely ambiguous.
+
+#+begin_src prolog
+contradiction(A, B, Reason) :-
+    incompatible(A, B, Reason),
+    active_memory(A),
+    active_memory(B).
+#+end_src
+
+Possible states:
+
+#+begin_src prolog
+belief_state(accepted).
+belief_state(contested).
+belief_state(superseded).
+belief_state(retracted).
+belief_state(expired).
+belief_state(candidate).
+#+end_src
+
+A contested memory can still be retrieved if the query asks for disagreement/history, but should not silently appear as settled truth.
+
+* Scope isolation
+
+The earlier scope × lifetime model should gain an explicit isolation policy.
+
+#+begin_src prolog
+scope_policy(project(Project), isolated).
+scope_policy(project(Project), inherits_global).
+
+visible_scope(Session, Project, project(Project)).
+visible_scope(Session, Project, session(Session)).
+visible_scope(_, Project, global) :-
+    scope_policy(project(Project), inherits_global).
+#+end_src
+
+This is the symbolic analogue of project-only memory: isolation is a hard rule, not a ranking preference.
+
+* Retrieval is a proof problem plus ranking
+
+Retrieval should happen in phases.
+
+** Phase 1: admissibility
+
+Use Prolog to determine which memories are legally/logically visible.
+
+Filters include:
+
+- scope;
+- authorization;
+- lifetime/expiry;
+- supersession;
+- temporal validity;
+- trust/provenance rules;
+- user deletion flags;
+- project isolation.
+
+** Phase 2: candidate generation
+
+Candidate retrieval can use multiple mechanisms:
+
+- direct predicate/index lookup;
+- graph traversal;
+- full-text search;
+- optional embeddings;
+- prior successful retrieval rules.
+
+** Phase 3: symbolic scoring
+
+The ranking function should expose its factors.
+
+#+begin_src prolog
+retrieval_score(Query, Memory, Score) :-
+    scope_score(Query, Memory, ScopeScore),
+    recency_score(Query, Memory, RecencyScore),
+    specificity_score(Query, Memory, SpecificityScore),
+    provenance_score(Memory, ProvenanceScore),
+    task_score(Query, Memory, TaskScore),
+    Score is ScopeScore
+          + RecencyScore
+          + SpecificityScore
+          + ProvenanceScore
+          + TaskScore.
+#+end_src
+
+Weights may later be optimized, but the scoring explanation must remain inspectable.
+
+* Working-memory synthesis
+
+The system needs a bounded context surface comparable in purpose to a memory summary/core-memory block, but it should be generated from symbolic state.
+
+#+begin_src prolog
+working_memory(Session, Project, Query, View) :-
+    findall(M,
+            admissible_memory(Session, Project, Query, M),
+            Candidates),
+    rank_memories(Query, Candidates, Ranked),
+    context_budget(Session, Budget),
+    select_under_budget(Ranked, Budget, Selected),
+    synthesize_view(Selected, View).
+#+end_src
+
+A working view should contain:
+
+- selected symbolic facts;
+- unresolved contradictions relevant to the query;
+- pinned user/project instructions;
+- active task state;
+- compact references to relevant source text;
+- explanation metadata showing why each item was selected.
+
+* Summary caches
+
+Summaries are useful for scale but are not authoritative.
+
+#+begin_src prolog
+summary_cache(Id, Scope, QueryClass, Content,
+              derived_from(MemoryIds),
+              policy_version(Policy),
+              created_at(Time)).
+#+end_src
+
+A summary becomes invalid when:
+
+- one of its source memories is superseded;
+- its retrieval policy changes materially;
+- its scope policy changes;
+- the user requests a refresh;
+- freshness rules say it is too old.
+
+* Memory promotion and demotion
+
+A memory can move into or out of the attention set without changing its underlying truth status.
+
+#+begin_src prolog
+attention_priority(Memory, pinned).
+attention_priority(Memory, high).
+attention_priority(Memory, normal).
+attention_priority(Memory, background).
+#+end_src
+
+This separation matters. "Top of mind" should not mean "more true."
+
+Promotion heuristics may include:
+
+- repeated use;
+- explicit user pinning;
+- project-wide applicability;
+- recurring constraint violations when omitted;
+- strong predictive value for future retrieval.
+
+Demotion heuristics may include:
+
+- long-term non-use;
+- supersession;
+- reduced project relevance;
+- repeated retrieval with no downstream use.
+
+* Project memory identity
+
+The project key should not be a raw local filesystem path alone. Paths move and remote clients may not share a filesystem.
+
+Research currently favors a stable project namespace with aliases:
+
+#+begin_src prolog
+project(project_7f3a).
+project_alias(project_7f3a, git("https://github.com/lost-rob0t/symbolic-memory" )).
+project_alias(project_7f3a, path("/home/user/src/symbolic-memory")).
+project_alias(project_7f3a, name(symbolic_memory)).
+#+end_src
+
+Canonical project identity should be generated once and then associated with repo URL/path/name aliases.
+
+* What embeddings should do
+
+Embeddings are useful as candidate generators for full-text memories and fuzzy recall. They should not:
+
+- decide authority;
+- cross project isolation boundaries;
+- determine whether a superseded fact is current;
+- replace symbolic joins when a predicate can answer exactly;
+- be required for v1 correctness.
+
+A Prolog-first v1 can use exact symbolic queries plus text search and add embeddings later behind the retrieval interface.
+
+* Evaluation requirements discovered in this pass
+
+The memory engine should eventually be tested against cases such as:
+
+- stale preference replaced by a new preference;
+- project-local fact conflicts with global default;
+- project-only mode blocks global memory entirely;
+- source text remains available after its symbolic projection is superseded;
+- temporal query asks what was believed last month;
+- two valid conflicting sources remain contested rather than arbitrarily merged;
+- summary cache invalidates after a source correction;
+- working-memory budget selects the smallest sufficient proof/context set.
+
+* Sources consulted
+
+- OpenAI, "Dreaming: Better memory for a more helpful ChatGPT", 2026-06-04.
+- OpenAI Help Center, Memory FAQ, 2026.
+- OpenAI Help Center, Projects in ChatGPT, project-only memory.
+- Rasmussen et al., "Zep: A Temporal Knowledge Graph Architecture for Agent Memory", arXiv:2501.13956.
+- Graphiti repository and MCP documentation, including bi-temporal episode handling.
+- LangMem conceptual guide, semantic/episodic/procedural memory and namespaces.
+- Letta documentation, persistent blocks and archival memory.
+
+* Open questions
+
+- Should valid-time intervals use ISO timestamps, Prolog date terms, or integer epochs internally?
+- Should contradiction detection begin with predicate-specific rules or a generic negation/conflict schema?
+- Which summaries are materialized versus synthesized on demand?
+- How large should the default working-memory budget be, and should budget be tokens, facts, or both?
+- Should project aliases be automatically discovered from Git remotes or only caller supplied?
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
