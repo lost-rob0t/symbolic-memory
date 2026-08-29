@@ -1,0 +1,216 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-010 Project Identity and Namespace Model
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+How should symbolic-memory identify and isolate project-local memory across clones, worktrees, renamed directories, remote repositories, and multiple clients?
+
+* Research conclusion
+
+Project memory should be addressed by an explicit logical namespace, not by a raw filesystem path alone.
+
+Filesystem paths are useful discovery hints but poor durable identities because they change under rename, clone, containerization, remote workspaces, symlinks, and worktrees.
+
+The recommended model separates:
+
+- canonical project identity;
+- project aliases/discovery hints;
+- memory namespace;
+- session identity;
+- principal/client authority.
+
+* Namespace hierarchy
+
+Research direction:
+
+#+begin_src prolog
+namespace(global).
+namespace(user(User)).
+namespace(project(ProjectId)).
+namespace(session(ProjectId, SessionId)).
+namespace(shared(Name)).
+#+end_src
+
+Project isolation should be deterministic. A query in one project must not see sibling project memory unless an explicit cross-project/shared rule permits it.
+
+* Canonical project identity
+
+A project should receive a stable opaque identifier generated once and persisted by the memory service.
+
+#+begin_src prolog
+project(project_7f3a,
+        [name(symbolic_memory),
+         remote('https://github.com/lost-rob0t/symbolic-memory'),
+         vcs(git)]).
+#+end_src
+
+The stable id is authoritative. Metadata such as name, path, and remote are aliases/evidence used for resolution.
+
+* Resolution hints
+
+Clients may provide one or more hints:
+
+- explicit project id;
+- repository remote URL;
+- canonical repository owner/name;
+- local repository root;
+- VCS root plus repository UUID if available;
+- workspace URI;
+- caller-defined namespace.
+
+Resolution should prefer explicit identity over heuristic matching.
+
+Illustrative ordering:
+
+#+begin_src prolog
+resolve_project(Context, Project) :-
+    explicit_project_id(Context, Project), !.
+resolve_project(Context, Project) :-
+    canonical_remote(Context, Remote),
+    project_remote(Project, Remote), !.
+resolve_project(Context, Project) :-
+    known_path_alias(Context, Path),
+    project_path_alias(Project, Path), !.
+#+end_src
+
+Heuristic auto-creation should be conservative to avoid accidentally binding unrelated repositories to the same memory namespace.
+
+* Git-specific considerations
+
+A Git working tree path is not a project identity.
+
+The same logical project may appear as:
+
+- multiple clones;
+- a primary checkout plus worktrees;
+- a container mount at another path;
+- a remote development environment;
+- a renamed local directory.
+
+Remote URL normalization should account for equivalent SSH/HTTPS forms where possible, for example GitHub =git@github.com:owner/repo.git= and =https://github.com/owner/repo.git=.
+
+A fork should not automatically inherit the upstream project's private project-local memory. Cross-project inheritance must be explicit.
+
+* Sessions
+
+MCP 2026-07-28 removes protocol-level sessions, so symbolic-memory should treat session identity as application data.
+
+A caller may provide:
+
+#+begin_src prolog
+context(project(ProjectId), session(SessionId), principal(Principal)).
+#+end_src
+
+Session memory remains scoped beneath a project when a project exists, but standalone sessions should also be possible for non-project clients.
+
+Transport connections must not define memory identity.
+
+* Global memory
+
+Global memory should be a distinct namespace, not a fallback bucket for unresolved project identity.
+
+If the service cannot resolve a project, it should not silently write the memory globally.
+
+A failed or ambiguous project resolution should produce an explicit result requiring the caller to supply or create a namespace.
+
+* Shared namespaces
+
+Intentional collaboration requires explicit shared namespaces.
+
+Examples:
+
+#+begin_src prolog
+namespace(shared(team(starintel))).
+namespace(shared(organization(starintel_labs))).
+#+end_src
+
+Shared memory should carry its own authorization policy and must not be implemented by weakening project isolation.
+
+* Aliases and migration
+
+Project metadata changes should update aliases without changing the canonical ProjectId.
+
+Examples:
+
+- repository renamed;
+- GitHub organization moved;
+- local checkout moved;
+- Forgejo/GitHub mirrors added;
+- default remote changed.
+
+The service should maintain alias history for auditability and avoid identity churn.
+
+* Project deletion and detach
+
+Removing a local checkout should not automatically delete project memory.
+
+The model should distinguish:
+
+- detach alias/path;
+- archive project namespace;
+- export namespace;
+- delete namespace.
+
+Physical deletion should be explicit.
+
+* Namespace authorization
+
+Project identity resolution and authorization are separate steps.
+
+Knowing that a request refers to =project_7f3a= does not imply the caller may mutate it.
+
+Research direction:
+
+#+begin_src prolog
+can_read(Principal, project(Project)).
+can_write(Principal, project(Project)).
+can_promote(Principal, project(Project), global).
+#+end_src
+
+Cross-scope promotion should require separate authority from ordinary project writes.
+
+* Memory URI direction
+
+The MCP resource layer could expose stable URIs such as:
+
+#+begin_example
+memory://global/facts/<id>
+memory://project/<project-id>/facts/<id>
+memory://project/<project-id>/session/<session-id>/<id>
+memory://project/<project-id>/rules/<rule-id>
+#+end_example
+
+These are research examples, not a frozen contract.
+
+* External design evidence
+
+Current production memory systems increasingly use hierarchical namespace models rather than flat stores. Cloudflare Agent Memory documents namespace/profile/session isolation, while AWS AgentCore emphasizes hierarchical namespaces as both a retrieval and authorization boundary.
+
+The key lesson for symbolic-memory is to make project scope a hard data-store boundary instead of relying on model-side filtering.
+
+* Research recommendation
+
+The project should adopt:
+
+- stable opaque ProjectId values;
+- explicit project/session/global/shared namespaces;
+- remote/path/workspace metadata as aliases, not identities;
+- deterministic project resolution;
+- no automatic fallback to global memory;
+- explicit cross-project/shared access;
+- separate resolution and authorization predicates.
+
+* Sources consulted
+
+- Model Context Protocol 2026-07-28 specification release notes: stateless protocol core and removal of protocol sessions.
+- Cloudflare Agent Memory documentation: namespace/profile/session isolation model, 2026.
+- AWS AgentCore Memory namespace design guidance, 2026.
+- AWS Agentic AI Lens guidance recommending architectural memory partitioning and least-privilege access.
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
