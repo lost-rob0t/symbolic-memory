@@ -1,0 +1,263 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-012 Explicit Remember Durability
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+When an LLM deliberately calls =memory_remember=, should that memory default to durable long-term storage, or should it first enter a temporary/raw capture layer and rely on later consolidation?
+
+This document is research only. It does not approve implementation.
+
+* Research conclusion
+
+An explicit =memory_remember= call SHOULD mean durable memory intent.
+
+The exact natural-language source should be preserved durably immediately.
+
+Automatic capture of ordinary conversation may still enter short-term/episodic/raw memory and later be consolidated, but the explicit tool named =memory_remember= should not silently behave like temporary scratch storage.
+
+The key distinction is:
+
+#+begin_example
+automatic observation capture -> may be short-term/raw/episodic
+explicit memory_remember      -> durable source memory
+#+end_example
+
+This keeps the API intuitive while preserving the approved capture/consolidation architecture.
+
+* Why this distinction matters
+
+A native tool API should make the common model action obvious from the tool name.
+
+If the model consciously chooses a tool called =memory_remember=, the natural expectation is that the stored memory survives beyond the immediate context/session according to its resolved namespace and retention policy.
+
+Making explicit remember temporary by default would create several problems:
+
+- the model cannot know whether a deliberate memory write actually survives;
+- the model may repeatedly write the same memory because persistence is uncertain;
+- user requests such as "remember this" could be lost before consolidation runs;
+- the API would conflate deliberate memory writes with automatic background capture;
+- downstream clients would need unnecessary lifetime flags for the most common durable-memory path.
+
+* Durable source does not mean eager symbolic authority
+
+Durable storage of the source text does NOT imply that every explicit memory becomes an immediately trusted semantic fact or rule.
+
+The system should separate:
+
+1. durable lossless source record;
+2. symbolic projection(s);
+3. semantic/current-truth activation;
+4. rule synthesis;
+5. scope/authority.
+
+An explicit remember call guarantees durable preservation of the source record, while Prolog still decides how that source is represented and used.
+
+For example, the source may be durable while its symbolic projection remains:
+
+- candidate;
+- contested;
+- source-specific;
+- low-trust;
+- awaiting clarification;
+- blocked from global promotion.
+
+This preserves the trust and authority boundaries approved in research 009.
+
+* Recommended write lifecycle
+
+#+begin_example
+memory_remember(text)
+        ↓
+resolve namespace + authority
+        ↓
+persist lossless source with stable ID
+        ↓
+derive symbolic projections where appropriate
+        ↓
+validate trust / contradictions / temporal state
+        ↓
+activate safe semantic state or retain as evidence
+#+end_example
+
+The persistence of the source is the deterministic contract.
+The semantic interpretation may be more conservative.
+
+* Relationship to automatic capture
+
+Research 008 already separates capture from consolidation.
+
+This document sharpens that distinction into two input paths.
+
+** Automatic capture path
+
+Ordinary interactions, observations, tool outputs, and ephemeral task context may be captured cheaply as:
+
+- working memory;
+- short-term session memory;
+- raw observations;
+- episodic evidence.
+
+These records may later be promoted/consolidated when recurrence, utility, explicit user intent, or another policy trigger justifies it.
+
+** Explicit remember path
+
+A deliberate model tool call or explicit user request to remember is itself a strong consolidation/durability signal.
+
+The source should not wait for recurrence before becoming durable.
+
+Rule creation and broad semantic generalization still require higher evidence thresholds.
+
+* Native API recommendation
+
+The minimal call should remain:
+
+#+begin_src json
+{
+  "memory": "Use Prolog as the authority for this project."
+}
+#+end_src
+
+The model should not normally need to provide =lifetime= just to obtain durable behavior.
+
+Recommended defaults:
+
+- preserve exact source prose durably;
+- bind to the current resolved project when one exists;
+- otherwise use the host-authorized user/session namespace policy;
+- never silently fall back to global;
+- =kind=auto=;
+- symbolic projection automatic but conservative;
+- return the stable memory ID.
+
+A deployment MAY expose an optional explicit temporary mode, but temporary storage should be opt-in rather than the default meaning of =memory_remember=.
+
+Conceptual optional override:
+
+#+begin_src json
+{
+  "memory": "Temporary hypothesis for this run",
+  "retention": "session"
+}
+#+end_src
+
+This keeps temporary intent explicit.
+
+* Memory ID semantics
+
+A successful explicit remember call should return a stable ID immediately.
+
+Example:
+
+#+begin_src json
+{
+  "status": "stored",
+  "id": "mem_42",
+  "scope": "project",
+  "durable": true
+}
+#+end_src
+
+That ID becomes the preferred handle for:
+
+- =memory_get=;
+- =memory_forget=;
+- =memory_explain=;
+- supersession/update operations if exposed;
+- provenance and audit inspection.
+
+This aligns with the approved ID-first forgetting design in research 011.
+
+* Lossless source requirement
+
+The natural-language text supplied to =memory_remember= should be preserved as source data.
+
+Symbolic extraction may create concise facts such as:
+
+#+begin_src prolog
+uses_authority(symbolic_memory, prolog).
+#+end_src
+
+but the original text remains available for:
+
+- exact-context fallback during recall;
+- contradiction inspection;
+- natural-language forgetting resolution;
+- provenance;
+- later re-projection when the symbolic schema improves.
+
+The model-facing recall path remains symbolic-first; durable source storage does not imply prose-first retrieval.
+
+* Scope and authority
+
+Durability and scope are separate dimensions.
+
+An explicit remember call can be durable in:
+
+- project scope;
+- user scope;
+- a permitted shared namespace;
+- global scope only with appropriate authority.
+
+A durable write does not gain broader authority merely because it persists.
+
+If the requested target scope is unauthorized, the server should return an explicit rejection or policy outcome rather than silently broadening or narrowing authority without reporting it.
+
+* Security implications
+
+Explicit remember is a strong persistence signal, but not a trust bypass.
+
+Untrusted external content should not become high-authority semantic memory simply because an agent calls =memory_remember= on it.
+
+The durable source may be stored as evidence while semantic activation is constrained by provenance and trust policy.
+
+This distinction is especially important for:
+
+- web content;
+- tool output;
+- quoted instructions;
+- inter-agent messages;
+- model-inferred conclusions.
+
+* Evidence from existing systems
+
+LangMem's agent-facing memory tooling describes its manage-memory tool as operating on persistent memories that carry across conversations and specifically recommends calling it when the user explicitly asks the assistant to remember something. Its hot-path documentation distinguishes conscious agent saves from background extraction, while both target long-term memory storage.
+
+This is not a requirement to copy LangMem's architecture, but it supports the API intuition that an explicit agent memory tool should produce persistent state rather than temporary scratch memory.
+
+symbolic-memory improves on this by separating durable source preservation from symbolic authority and consolidation policy.
+
+* Recommendation to reconcile research 005
+
+Research 005 should resolve its open question as follows:
+
+#+begin_example
+memory_remember defaults to durable source storage.
+automatic conversational capture may remain short-term/raw.
+semantic projection and rule creation remain policy-gated.
+#+end_example
+
+The =lifetime= or =retention= argument should therefore not be required for normal durable remembers.
+
+* Remaining open questions
+
+- Should the optional temporary override be named =retention=session=, =lifetime=short_term=, or something else?
+- Should explicit remember synchronously create a best-effort symbolic projection before returning, or return after durable source commit and allow projection immediately afterward?
+- Should an explicit remember from a model be treated differently from an explicit remember requested directly by the user for trust/authority scoring?
+- Should a failed symbolic projection still return success if the lossless source was durably committed? Current recommendation: yes, with projection status reported separately.
+
+* Sources consulted
+
+- LangMem Memory Tools API: agent-facing create/update/delete operations over persistent memories and explicit remember guidance.
+- LangMem Hot Path Quickstart: conscious agent saves into long-term memory versus background extraction.
+- LangMem introduction and memory tooling documentation: persistent memory across conversations.
+- SYMBOLIC-MEMORY-RESEARCH-008: approved capture/consolidation lifecycle.
+- SYMBOLIC-MEMORY-RESEARCH-009: approved trust and authority separation.
+- SYMBOLIC-MEMORY-RESEARCH-011: approved lossless prose, symbolic-first recall, stable IDs, and ID-first forgetting.
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
