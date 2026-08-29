@@ -1,0 +1,263 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-001 Tiered Symbolic Memory Architecture
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+How should a Prolog-first MCP memory server represent short-term, project-local, and global long-term memory while supporting symbolic facts, full-text memories, selective rule synthesis, and self-optimization?
+
+* Current conclusion
+
+The memory model SHOULD NOT encode =session -> project -> global= as a single tier ladder.
+Scope and lifetime are separate dimensions and must remain independently queryable.
+
+Recommended core shape:
+
+#+begin_src prolog
+memory(Id, Scope, Lifetime, Kind, Value, Meta).
+
+scope(session(Session)).
+scope(project(Project)).
+scope(global).
+
+lifetime(working).
+lifetime(short_term).
+lifetime(long_term).
+
+kind(fact).
+kind(text).
+kind(rule).
+kind(episode).
+kind(preference).
+#+end_src
+
+This permits durable project memory, transient project state, persistent global facts, and session working memory without conflating where a memory applies with how long it should live.
+
+* Required memory classes
+
+** Session / working memory
+
+Fast, disposable state for the active model/tool session.
+Examples:
+
+- current task;
+- recently observed facts;
+- active entities;
+- tool results;
+- unresolved branches;
+- temporary retrieval hints.
+
+** Project-local memory
+
+Persistent knowledge scoped to one project/repository/workspace.
+Examples:
+
+- architecture decisions;
+- project terminology;
+- coding conventions;
+- project-specific user preferences;
+- prior failures and fixes;
+- reusable project retrieval rules.
+
+Project scope may contain either short-term or long-term memories.
+
+** Global memory
+
+Cross-project persistent memory.
+Examples:
+
+- durable user preferences;
+- general ontology;
+- reusable symbolic rules;
+- stable environment facts;
+- cross-project concepts and mappings.
+
+Global memory must not automatically override more specific project or session context.
+
+* Symbolic-first storage
+
+The default memory representation should be Prolog terms, not opaque text blobs.
+
+Example:
+
+#+begin_src prolog
+memory(m1,
+       project(symbolic_memory),
+       long_term,
+       fact,
+       uses_language(prolog),
+       [source(user), confidence(1.0)]).
+
+memory(m2,
+       global,
+       long_term,
+       preference,
+       prefers(symbolic_memory),
+       [source(user)]).
+#+end_src
+
+The server must also support full text because some memories cannot be safely or usefully reduced to predicates without losing information.
+
+#+begin_src prolog
+memory(m3,
+       project(symbolic_memory),
+       long_term,
+       text,
+       "Full original design note goes here.",
+       [source(user), symbolic_projection([m1,m2])]).
+#+end_src
+
+Text memory should normally be accompanied by symbolic projections when possible, but retaining the source text is allowed and sometimes required.
+
+* Retrieval model
+
+Retrieval should compose relevant memories rather than stop at the first tier containing a match.
+Specificity should influence ranking.
+
+Default precedence:
+
+1. active session / working memory;
+2. project-local short-term memory;
+3. project-local long-term memory;
+4. global short-term memory, if such memories exist;
+5. global long-term memory.
+
+Illustrative rule:
+
+#+begin_src prolog
+visible_memory(Session, Project, Memory) :-
+    memory_in_scope(Session, Project, Memory),
+    memory_alive(Memory),
+    memory_relevant(Memory).
+#+end_src
+
+Retrieval policy itself should be represented symbolically so it can be inspected, tested, and selectively optimized.
+
+* Rule synthesis
+
+The system SHOULD be capable of writing new Prolog rules, but MUST NOT create rules on every interaction.
+
+Rule creation should be triggered by evidence such as:
+
+- repeated equivalent retrieval plans;
+- recurring multi-step joins;
+- repeated retrieval failures that share a pattern;
+- repeated user correction of the same inference mistake;
+- expensive searches that can be replaced by a stable symbolic derivation;
+- a stable cluster of facts that supports a reusable abstraction.
+
+A proposed rule must carry provenance and evaluation metadata.
+
+#+begin_src prolog
+proposed_rule(rule_42,
+              related_project_fact(X, Y) :- project_fact(X, Z), project_fact(Y, Z),
+              [trigger(repeated_join), observations(14), status(candidate)]).
+#+end_src
+
+Rule lifecycle should distinguish at least:
+
+- candidate;
+- testing;
+- active;
+- deprecated;
+- rejected.
+
+The runtime may self-optimize memory retrieval, but generated rules should be testable, reversible, and attributable.
+
+* Self-optimization loop
+
+Recommended control loop:
+
+#+begin_src prolog
+observe(Query, Result, Cost),
+record_retrieval_event(Query, Result, Cost),
+optimization_trigger(Trigger),
+propose_optimization(Trigger, Proposal),
+evaluate_proposal(Proposal, Verdict),
+apply_if_safe(Verdict, Proposal).
+#+end_src
+
+Optimization targets may include:
+
+- rule synthesis;
+- rule removal;
+- memory promotion/demotion;
+- summarization;
+- symbolic projection of text;
+- duplicate merging;
+- contradiction tracking;
+- index creation;
+- retrieval ordering.
+
+The system should optimize from measured retrieval behavior rather than from an unconditional instruction to "improve memory".
+
+* Persistence
+
+SWI-Prolog =library(persistency)= is a viable initial storage layer for persistent predicates.
+The first implementation should keep persistence behind a small storage interface so a later SQLite/PostgreSQL/event-log backend can be substituted without changing the MCP contract.
+
+* MCP surface under research
+
+The initial MCP API should probably expose explicit memory operations rather than unrestricted arbitrary Prolog mutation.
+Candidate tools:
+
+- =memory_store=
+- =memory_recall=
+- =memory_query=
+- =memory_forget=
+- =memory_supersede=
+- =memory_promote=
+- =memory_explain=
+- =memory_rule_propose=
+- =memory_rule_test=
+- =memory_rule_activate=
+- =memory_optimize=
+
+An escape-hatch Prolog query tool may be useful for development, but unrestricted =assertz/1= from arbitrary model output should not be the normal memory API.
+
+* Security and integrity concerns
+
+Persistent model-written memory creates a durable prompt-injection and poisoning surface.
+Minimum requirements:
+
+- provenance on every memory;
+- distinguish user assertions from model inferences;
+- contradiction/supersession support instead of destructive overwrite;
+- explicit project/global scope;
+- reversible generated rules;
+- audit log for rule and memory mutation;
+- no automatic promotion from untrusted text into high-authority global facts.
+
+* ADARD governance
+
+This document is research only.
+
+ADARD/ARARD may revise this document and recommend a next state, but MUST NOT approve it for design or implementation.
+Only the human operator may change its status to =APPROVED-FOR-DESIGN=, =APPROVED-FOR-IMPLEMENTATION=, or =REJECTED=.
+Every research pass must return the updated document to the human operator.
+
+* Open questions for the next pass
+
+- Exact persistence layout: one DB with explicit scope versus per-project stores.
+- Whether project identity is repo URI, canonical path, UUID, or caller-provided namespace.
+- How rule candidates are benchmarked before activation.
+- Whether text retrieval needs embeddings in v1 or should begin with symbolic/full-text search only.
+- Contradiction and temporal truth model.
+- Multi-client concurrency and locking semantics.
+- Capability/authorization model for models allowed to mutate global memory.
+
+* Sources consulted
+
+- SelfMem: Self-Optimizing Memory for AI Agents, arXiv:2607.03726.
+- MetaMem, Findings of ACL 2026.
+- Advancing Multimodal Agent Reasoning with Long-Term Neuro-Symbolic Memory, arXiv:2603.15280.
+- SWI-Prolog =library(persistency)= documentation.
+- Prolog-MCP by Adam Rybinski.
+- Claude Code memory documentation for project/user scope comparison.
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
