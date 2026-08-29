@@ -1,0 +1,70 @@
+#+title: ADARD Research Governance
+#+status: ACTIVE
+#+repo: lost-rob0t/symbolic-memory
+
+* Purpose
+
+ADARD/ARARD research in this repository is research-only and human-gated.
+The loop may discover, compare, test, critique, and revise research documents.
+It may not approve research for design or implementation.
+
+* Hard rules
+
+- Every research pass MUST produce or update a durable document under =research/=.
+- Every research document MUST be returned to the human operator after the pass.
+- Research status MUST remain human-gated until the operator explicitly changes it.
+- ADARD/ARARD MUST NOT mark a document implementation-ready, design-ready, approved, accepted, or equivalent.
+- ADARD/ARARD MUST NOT silently promote research because confidence is high or tests pass.
+- The model MAY recommend a next state, but the recommendation is advisory only.
+- The model MAY identify missing evidence and schedule another research pass.
+- The model MAY revise an existing research document while preserving provenance and prior conclusions where useful.
+- Implementation workers MUST consume only documents explicitly approved by the human operator.
+
+* Required status vocabulary
+
+Research documents begin as one of:
+
+- =RESEARCHING=
+- =PENDING-HUMAN-REVIEW=
+- =NEEDS-MORE-RESEARCH=
+
+Only the human operator may set:
+
+- =APPROVED-FOR-DESIGN=
+- =APPROVED-FOR-IMPLEMENTATION=
+- =REJECTED=
+
+* Required handoff
+
+At the end of every pass, ADARD/ARARD MUST return:
+
+1. the paths of all research documents created or changed;
+2. the current status of each document;
+3. a short statement of what changed;
+4. unresolved questions or evidence gaps;
+5. an explicit note that no approval or implementation promotion occurred.
+
+The document itself is the handoff artifact. A prose summary alone is not sufficient.
+
+* Implementation gate
+
+An implementation worker may consume a research document only when an explicit human-controlled status permits it.
+
+#+begin_src prolog
+human_gate(researching, blocked).
+human_gate('PENDING-HUMAN-REVIEW', blocked).
+human_gate('NEEDS-MORE-RESEARCH', blocked).
+human_gate('APPROVED-FOR-DESIGN', design_only).
+human_gate('APPROVED-FOR-IMPLEMENTATION', implementation_allowed).
+human_gate(rejected, blocked).
+
+implementation_allowed(Status) :-
+    human_gate(Status, implementation_allowed).
+#+end_src
+
+* Non-goals
+
+- Autonomous research approval.
+- Autonomous transition from research to implementation.
+- Treating a high-confidence model judgment as equivalent to human approval.
+- Returning only chat summaries without the underlying research artifact.
