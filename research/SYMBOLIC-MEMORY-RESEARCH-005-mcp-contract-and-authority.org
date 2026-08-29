@@ -5,156 +5,161 @@
 
 * Research question
 
-How should the symbolic-memory MCP server expose scoped memory, retrieval, provenance, and rule evolution while remaining extremely simple for an LLM to use and preventing project/global memory poisoning and authority escalation?
+How should the symbolic-memory MCP server expose memory to LLMs through a very small native tool API while preserving Prolog-first semantics, scoped authority, full-corpus long-term recall, lossless source memory, and safe forgetting?
+
+This revision reconciles the MCP contract with the human-approved decisions in =SYMBOLIC-MEMORY-RESEARCH-011=.
+
+This document remains research only. It does not approve implementation.
 
 * Research conclusion
 
-The model-facing API should be a small set of ordinary native MCP tools with simple structured arguments and strong defaults.
-
-The LLM should not need to:
-
-- construct Prolog source;
-- understand internal predicates;
-- build a query AST for normal recall;
-- open a memory context before every operation;
-- know which persistence backend is active;
-- manually merge project/global/session memory;
-- understand retrieval indexes;
-- understand the internal rule engine.
-
-Prolog remains the authority underneath the API. The MCP layer should translate simple tool calls into Prolog goals, enforce scope and authority, perform retrieval, and return structured results.
-
-The normal LLM-facing API should therefore be closer to:
+The ordinary LLM-facing API SHOULD expose six native tools:
 
 #+begin_example
 memory_remember
 memory_search
+memory_recall
 memory_get
 memory_forget
 memory_explain
 #+end_example
 
-rather than a large collection of low-level memory-management primitives.
+The LLM should not need to:
 
-Advanced rule-management, benchmark, audit, and administration operations may exist as separate privileged tools, but they should not clutter the ordinary model tool surface.
+- write Prolog;
+- understand internal predicates;
+- construct query ASTs for normal use;
+- choose indexes or retrieval backends;
+- open a context handle before ordinary operations;
+- manually merge project/session/global memory;
+- reason about internal lifecycle predicates;
+- reconstruct natural-language memory from symbolic facts.
 
-This document is research only and is not approved for implementation.
+Prolog remains the semantic and authorization engine underneath these tools.
 
-* Native tool API principle
+* API principle
 
-The memory server should use the host's native tool-calling mechanism directly.
+The server should use the host's native tool mechanism directly.
 
-For MCP clients this means normal MCP tools with JSON Schema inputs and structured outputs.
+For MCP clients, these are ordinary MCP tools with simple JSON Schema inputs and structured outputs.
 
-The LLM should interact with memory the same way it interacts with any well-designed tool:
+The design target is that an LLM can learn the common API from the tool names and schemas alone.
 
-1. choose a clearly named tool;
-2. provide a small number of obvious arguments;
-3. receive a concise structured result;
-4. continue reasoning.
-
-There should be no requirement that the model emit textual Prolog queries for ordinary memory operations.
-
-Prolog is the implementation language and policy engine, not the user interface presented to the model.
+The model-facing layer should look like a normal tool API, not like a Prolog REPL.
 
 * Golden-path tool surface
 
 ** =memory_remember=
 
-Purpose: save something worth remembering.
+Purpose: save something worth remembering while preserving the original natural-language text losslessly.
 
-Minimal model-facing shape:
+Minimal call:
 
 #+begin_src json
 {
-  "memory": "symbolic-memory uses Prolog as its authority",
-  "scope": "project"
+  "memory": "Use Prolog as the authority for this project."
 }
 #+end_src
 
-The only required field should normally be =memory=.
-
-Useful optional fields:
+Useful optional arguments MAY include:
 
 - =scope=: =session=, =project=, =global=;
-- =lifetime=: =short_term= or =long_term=;
-- =kind=: =auto=, =fact=, =text=, =episode=, =preference=, =procedure=;
-- =importance= or an equivalent hint;
-- =source= only when the caller has useful source information.
+- =lifetime=: =short_term=, =long_term=, or =auto=;
+- =kind=: =auto=, =fact=, =episode=, =preference=, =procedure=, =text=;
+- =importance=;
+- =source= when the caller has useful provenance information.
 
-Defaults should do the obvious thing:
+Defaults should bind to the current project when one is known, otherwise the current session. Failure to resolve project identity MUST NOT silently become a global write.
 
-- current project when a project is bound;
-- otherwise current session;
-- =long_term= only when explicitly requested or policy concludes promotion is justified;
-- =kind=auto=;
-- preserve original text even when the service creates symbolic projections.
+The server preserves the exact source text and may derive zero or more symbolic projections internally.
 
-The service should normalize the memory into Prolog internally.
-
-The LLM should not need to send:
-
-#+begin_src json
-{
-  "value": {
-    "functor": "uses_language",
-    "args": ["symbolic_memory", "prolog"]
-  }
-}
-#+end_src
-
-unless an advanced client deliberately wants low-level symbolic insertion.
+Symbolic projection MUST NOT replace the original source memory.
 
 ** =memory_search=
 
-Purpose: search long-term memory, including the full authorized memory corpus.
+Purpose: deliberately search the full authorized long-term memory corpus.
 
-Minimal shape:
+Minimal call:
 
 #+begin_src json
 {
-  "query": "What decisions have we made about project memory?"
+  "query": "What decisions did we make about long-term memory?"
 }
 #+end_src
 
-Useful optional fields:
+Search is for corpus exploration, discovery, historical lookup, auditing, and explicit long-term recall.
+
+It may search, subject to authority:
+
+- project long-term memories;
+- permitted user/global memories;
+- symbolic facts;
+- lossless source prose;
+- episodic/source observations;
+- preferences and procedures;
+- provenance and derivation edges;
+- archived or superseded history when requested.
+
+Optional arguments MAY include:
 
 - =scope=: =current=, =project=, =global=, =all_visible=;
 - =history=: boolean;
 - =limit=;
 - =kind=;
-- =search_mode=: =auto=, =symbolic=, =text=, =semantic=, =exact=.
+- =mode=: =auto=, =symbolic=, =text=, =exact=, =semantic=, =historical=.
 
-Default =search_mode=auto= should let Prolog choose the best retrieval plan.
+Default =mode=auto= lets Prolog choose the retrieval plan.
 
-The model should not need to decide whether a query requires exact predicate matching, full-text indexing, temporal search, graph traversal, or semantic fallback.
+The model should not need to know whether Prolog used predicate matching, full-text lookup, temporal search, graph traversal, or optional semantic/vector candidate generation.
 
-The response should favor useful memories first while still allowing exhaustive/full-corpus search when explicitly requested.
+** =memory_recall=
 
-Example result:
+Purpose: compile the smallest sufficient task-ready memory packet for the active model.
 
-#+begin_src json
-{
-  "results": [
-    {
-      "id": "mem_42",
-      "memory": "Project scope and lifetime are orthogonal dimensions.",
-      "scope": "project",
-      "kind": "fact",
-      "status": "current",
-      "why": "matched project architecture decisions"
-    }
-  ],
-  "searched": "all_visible",
-  "more": false
-}
-#+end_src
+=memory_recall= is intentionally distinct from =memory_search=.
 
-Detailed proof metadata should be available but need not dominate the ordinary response.
+#+begin_example
+memory_search -> find/explore memories in the authorized corpus
+memory_recall -> compile relevant memories into current model context
+#+end_example
+
+Recall defaults to symbolic memory.
+
+The model-facing recall output MUST NOT be raw Prolog source. It should look approximately like concise Markdown while also returning structured metadata.
+
+Example rendered content:
+
+#+begin_example
+# Recalled memory
+
+## Project
+- **Architecture · Current** — Recall is symbolic-first. [mem_91]
+- **Storage · Current** — Preserve original natural-language memory losslessly. [mem_92]
+
+## Source context
+Included because the symbolic projection omits a relevant qualification.
+
+> [mem_92] Recall symbolic memory first and include the exact source prose only when the symbols lose important context.
+#+end_example
+
+Recall SHOULD include exact lossless source prose only when the symbolic representation lacks necessary task context.
+
+Possible source-expansion triggers include:
+
+- projection is marked lossy or context-required;
+- exact wording is requested;
+- rationale, exceptions, sequence, or qualifications matter;
+- contradictions require source inspection;
+- trust policy requires inspecting source evidence;
+- adequacy checking determines that symbolic recall is insufficient.
+
+The prose fallback MUST come from the stored source record. It MUST NOT be reconstructed by an LLM and presented as original memory.
+
+Recall should prominently return memory IDs so the model can use exact IDs in follow-up operations.
 
 ** =memory_get=
 
-Purpose: fetch one known memory by id.
+Purpose: inspect one known memory by ID.
 
 #+begin_src json
 {
@@ -162,48 +167,75 @@ Purpose: fetch one known memory by id.
 }
 #+end_src
 
-The response may include:
+The detailed result MAY include:
 
-- full original text;
+- exact original source text;
 - symbolic projections;
 - provenance;
 - temporal state;
 - supersession chain;
-- trust/authority metadata;
-- related memories.
+- trust and authority metadata;
+- derivation/dependency links;
+- related memory IDs.
 
-This keeps =memory_search= concise while preserving deep inspection when needed.
+This keeps ordinary recall/search concise while preserving deep inspection.
 
 ** =memory_forget=
 
-Purpose: tell the memory system that a memory should no longer influence ordinary current recall.
+Purpose: stop one or more memories from influencing ordinary current recall.
 
-Minimal shape:
+The preferred model path is ID-first.
 
 #+begin_src json
 {
-  "id": "mem_42"
+  "ids": ["mem_42", "mem_43"]
 }
 #+end_src
 
-Optional =reason= may be supplied.
+When the model already has memory IDs, it should use them directly instead of repeating the memory text.
 
-The API name should stay simple even though the Prolog engine may internally choose among:
+Natural-language forgetting remains supported as a resolver when IDs are unknown or the user requests broad topic forgetting.
 
-- expire;
-- demote;
-- supersede;
-- invalidate;
-- archive;
-- delete when explicitly required.
+#+begin_src json
+{
+  "query": "memories relating to the old SQLite backend plan"
+}
+#+end_src
 
-The model should not need to understand those internal lifecycle operations for the common case.
+Natural-language text is not itself the mutation target.
+
+The intended flow is:
+
+#+begin_example
+natural-language request
+        ↓
+Prolog forget resolver
+        ↓
+concrete related memory IDs
+        ↓
+forget lifecycle applied to those IDs
+#+end_example
+
+The resolver SHOULD consider:
+
+1. symbolic entity/fact matches;
+2. symbolic relation traversal;
+3. provenance/derivation links;
+4. full-text lossless source matches;
+5. explicit aliases/entity normalization;
+6. optional semantic/vector candidates as a fallback.
+
+The mutation is always applied to resolved concrete IDs.
+
+Forgetting MAY internally mean archive, invalidate, expire, demote, supersede, retract derived state, or physically delete when policy explicitly requires destructive deletion.
+
+Dependent memories or learned rules whose only support disappears may need invalidation or recomputation rather than blind deletion.
 
 ** =memory_explain=
 
-Purpose: explain why a memory was stored, returned, trusted, superseded, or derived.
+Purpose: explain why a memory was stored, returned, trusted, derived, superseded, or affected by forgetting.
 
-Examples:
+Example:
 
 #+begin_src json
 {
@@ -211,176 +243,72 @@ Examples:
 }
 #+end_src
 
-or, if supported:
+The response should translate Prolog proof/provenance into concise model-readable structure rather than exposing engine internals by default.
+
+* Structured output plus model-readable content
+
+Native tool results should be shallow and obvious.
+
+For recall in particular, the result SHOULD contain both:
+
+1. model-readable Markdown-like content;
+2. structured metadata containing IDs and machine-usable state.
+
+Conceptual shape:
 
 #+begin_src json
 {
-  "query": "Why did you return this project preference?"
+  "content": "# Recalled memory\n...",
+  "memories": [
+    {
+      "id": "mem_91",
+      "scope": "project",
+      "status": "current",
+      "statement": "Recall is symbolic-first.",
+      "source_context_included": false
+    }
+  ]
 }
 #+end_src
 
-The response should translate Prolog proof/provenance information into concise structured explanation suitable for an LLM.
+Detailed proof trees belong behind =memory_explain= or an explicit details flag.
 
-* Optional convenience tool: =memory_recall=
+* Context should normally be host-provided
 
-There is an open design choice whether =memory_recall= should exist separately from =memory_search=.
-
-A simple interpretation would be:
-
-- =memory_search= explicitly searches durable memory;
-- =memory_recall= asks the service for the best small set of memories to inject into the current task context.
-
-If this distinction does not materially help clients, the API should avoid adding the extra tool and use =memory_search= with good defaults instead.
-
-The ordinary API should stay small.
-
-* Context should usually be host-provided
-
-The earlier research direction considered requiring a =memory_context_open= handle before ordinary calls. That is too cumbersome for the default LLM-facing path.
-
-A client/host should normally bind context when exposing the MCP server:
+The host/client should normally bind:
 
 - principal/user;
-- current project id when known;
-- current session/run id when known;
+- current project identity when known;
+- current session/run identity when known;
 - permitted global/shared scopes.
 
-Then a call such as:
+The model should not need to repeat project/session identity on every call.
 
-#+begin_src json
-{
-  "memory": "Use Prolog for this project"
-}
-#+end_src
+Explicit scope/context overrides may remain available for intentional cross-scope access when authorized.
 
-can naturally resolve to the current project without requiring the model to repeat =project_id= on every call.
+Project resolution and authorization are separate operations.
 
-Explicit context/scope arguments should remain available when the model intentionally wants to access another permitted scope.
+* Small API does not mean small memory
 
-The server must never silently fall back to global writes because project resolution failed.
+The working-memory/context packet is only a bounded attention view.
 
-* Long-term memory remains directly searchable
+It is NOT the total memory accessible to the LLM.
 
-A small tool API must not mean a small memory corpus.
+The model retains explicit deliberate access to the full authorized long-term corpus through =memory_search=.
 
-=memory_search= should be able to search all durable memory the principal is authorized to read, including:
+This invariant is central:
 
-- project long-term memory;
-- permitted global long-term memory;
-- full-text memories;
-- symbolic facts;
-- episodic/source records;
-- procedures/preferences;
-- provenance;
-- archived/superseded history when requested.
-
-The bounded working-memory view is a convenience for context injection. It is not the boundary of what the LLM can recall.
-
-* Symbolic storage without symbolic API burden
-
-The internal model may contain facts such as:
-
-#+begin_src prolog
-memory_fact(mem_42,
-            project(project_7f3a),
-            prefers(symbolic_memory, prolog),
-            valid_time(T0, infinity),
-            Provenance).
-#+end_src
-
-But the LLM may have stored it through:
-
-#+begin_src json
-{
-  "memory": "The symbolic-memory project should use Prolog.",
-  "scope": "project"
-}
-#+end_src
-
-The server may preserve the original text while deriving one or more symbolic representations.
-
-The model-facing contract should optimize for correct tool use, not expose internal normalization syntax.
-
-* Advanced symbolic access
-
-A constrained low-level symbolic query interface may still be valuable for expert clients and debugging.
-
-Possible advanced tool:
-
-- =memory_query_symbolic=
-
-This should not be part of the default LLM tool set unless a client explicitly requests advanced symbolic access.
-
-It should execute only against an allowlisted logical surface and must not become a general SWI-Prolog REPL.
-
-No unrestricted model-facing =assertz/1=, =retract/1=, =consult/1=, shell, file, or network execution should be exposed through the normal memory server.
-
-* Advanced and privileged tools
-
-The following concerns should be separated from the golden-path tool surface:
-
-** Rule evolution
-
-Possible privileged tools:
-
-- =memory_rule_propose=;
-- =memory_rule_test=;
-- =memory_rule_activate=;
-- =memory_rule_rollback=.
-
-Ordinary models may receive =memory_rule_propose= in deployments that want self-improvement, but activation authority should be separate.
-
-** Administration and audit
-
-Possible administrative tools:
-
-- inspect audit events;
-- enumerate namespaces;
-- repair/invalidate poisoned derivation trees;
-- run benchmarks;
-- inspect optimizer telemetry.
-
-These should not be advertised to every model by default.
-
-Tool discovery itself should follow least privilege: models should ideally see only the tools they are allowed and expected to use.
-
-* Native structured outputs
-
-Tools should return structured content rather than prose-only blobs.
-
-However, the structure should remain shallow and obvious for models.
-
-Bad default shape:
-
-#+begin_src json
-{
-  "proof": {
-    "resolution": {
-      "goal_tree": [],
-      "candidate_rules": [],
-      "table_generations": []
-    }
-  }
-}
-#+end_src
-
-Better default shape:
-
-#+begin_src json
-{
-  "results": [],
-  "scope": "project",
-  "status": "ok"
-}
-#+end_src
-
-Detailed proof data can be returned by =memory_explain= or under an optional =details=true= flag.
+#+begin_example
+                 ┌─ automatic bounded symbolic-first recall
+long-term corpus ┤
+                 └─ explicit full-corpus search
+#+end_example
 
 * Authority model
 
-A simple model-facing API does not imply weak authorization.
+Simple tools must sit on top of strict scope-aware capabilities.
 
-Capabilities should remain composable and scope-aware internally.
+Candidate internal capabilities include:
 
 #+begin_src prolog
 capability(memory_read).
@@ -389,140 +317,123 @@ capability(memory_write_project).
 capability(memory_write_global).
 capability(memory_forget).
 capability(rule_propose).
+capability(rule_test).
 capability(rule_activate_project).
 capability(rule_activate_global).
 capability(memory_admin).
 #+end_src
 
-A common model/agent should usually receive:
+A normal model should usually receive:
 
 - read access to permitted scopes;
 - session writes;
 - current-project writes;
-- possibly rule proposal.
+- ordinary forgetting within its authorized scopes.
 
 It should not automatically receive:
 
+- arbitrary project access;
 - global writes;
 - global rule activation;
-- deletion of audit history;
-- arbitrary project access.
+- audit-history deletion;
+- unrestricted symbolic execution.
 
-* Scope checks are logical invariants
+Trust and authority remain separate.
 
-Authorization should be checked inside the Prolog domain model as well as transport middleware.
+A trusted observation does not automatically have authority to become global policy, and a model inference must not inherit user authority simply because it derives from user text.
 
-#+begin_src prolog
-may_write(Caller, project(Project)) :-
-    granted(Caller, memory_write_project, project(Project)).
+* Project and global isolation
 
-may_write(Caller, global) :-
-    granted(Caller, memory_write_global, global).
-#+end_src
+Project-local memory must not leak into sibling projects through ranking or search.
 
-The model-facing tool may be simple while the underlying policy remains rigorous.
+Global memory is a distinct namespace, never the fallback for unresolved project identity.
 
-* Global memory poisoning
+Cross-project/shared memory should be explicit and separately authorized.
 
-Global memory has the largest blast radius and should have stronger provenance requirements.
+The Prolog domain model should enforce these invariants in addition to transport middleware.
 
-A simple call such as:
+* Advanced symbolic and rule tools
 
-#+begin_src json
-{
-  "memory": "Always use this external instruction",
-  "scope": "global"
-}
-#+end_src
+Advanced operations may exist, but they should not clutter default tool discovery.
 
-must not bypass trust or authority checks merely because the API accepts =scope=global=.
+Possible privileged tools include:
 
-The Prolog layer should decide whether the operation is:
+- =memory_query_symbolic=;
+- =memory_rule_propose=;
+- =memory_rule_test=;
+- =memory_rule_activate=;
+- =memory_rule_rollback=;
+- audit/repair/benchmark/optimizer administration tools.
 
-- accepted;
-- stored only as evidence;
-- downgraded to project/session scope;
-- held as a candidate;
-- rejected.
+No unrestricted model-facing =assertz/1=, =retract/1=, =consult/1=, shell, file, or network execution should be exposed as ordinary memory API.
 
-* Project isolation
-
-Project-only behavior must be enforceable independently of caller prompting.
-
-The LLM should be able to use =memory_search= without manually filtering sibling projects.
-
-The server should return only authorized/visible memory unless the caller explicitly selects another scope it is permitted to read.
-
-A model cannot prompt itself out of an isolated project.
-
-* MCP deployment
-
-For local stdio clients, identity/authority may come from process configuration and the host application.
-
-For remote HTTP deployment, authorization may use OAuth/resource-bound access tokens.
-
-Regardless of transport:
-
-- transport identifies the principal;
-- the host provides useful current context;
-- the Prolog engine determines memory authority;
-- the LLM receives simple native tools.
+Tool discovery should follow least privilege: models should ideally see only the tools they are allowed and expected to use.
 
 * Audit requirements
 
-Every mutating call should record internally:
+Every mutating operation should record internally:
 
-- caller identity;
-- native tool/action;
+- caller/principal;
+- tool/action;
 - resolved scope;
-- target memory/rule;
+- target memory IDs;
 - source/provenance;
 - timestamp;
-- old/new version where applicable;
-- result or rejection reason.
+- previous/new version where applicable;
+- authorization/policy result;
+- resolved ID set for natural-language forgetting.
 
 The model should not need to provide this bookkeeping manually.
 
-* Research recommendation
+* Revised research recommendation
 
-The v1 model-facing API should target approximately five tools:
+The v1 ordinary model-facing surface should therefore be:
 
 1. =memory_remember=;
 2. =memory_search=;
-3. =memory_get=;
-4. =memory_forget=;
-5. =memory_explain=.
+3. =memory_recall=;
+4. =memory_get=;
+5. =memory_forget=;
+6. =memory_explain=.
 
-Possibly add =memory_recall= only if it proves meaningfully distinct from search.
+The key semantics are now:
 
-Everything else should either:
+- native tool calls, not Prolog syntax;
+- lossless natural-language source retained on write;
+- symbolic-first recall;
+- exact prose fallback only when symbolic context is insufficient;
+- search over the full authorized long-term corpus;
+- recall distinct from search;
+- prominent stable memory IDs;
+- ID-first model forgetting;
+- natural-language forgetting resolved by Prolog to concrete related IDs;
+- strict project/global authority underneath the simple API.
 
-- happen automatically under Prolog policy;
-- be expressed as optional arguments;
-- live in an advanced/privileged tool surface.
+* Remaining open questions
 
-The design goal is that an LLM can learn the entire ordinary memory API from the tool names and schemas alone.
+The major unresolved design questions are now narrower:
 
-* Sources consulted
+- Should explicit =memory_remember= default to durable long-term capture, or enter short-term/raw capture and rely on consolidation policy?
+- What exact adequacy policy decides when recall expands a symbolic memory into lossless prose?
+- How much automatic symbolic projection should happen synchronously on =memory_remember=?
+- How should different MCP hosts bind current project/session identity consistently?
+- How far may dependency closure travel during broad natural-language forgetting before requiring stronger confidence or explicit confirmation?
+- Should advanced =memory_query_symbolic= live in the same server with capability-gated discovery or in a separate expert surface?
 
-- Model Context Protocol 2026-07-28 specification and tool schema documentation.
-- MCP authorization/security documentation.
-- Letta memory blocks and archival search API as a model-facing memory reference.
-- LangMem long-term memory API concepts.
-- Mem0 scoped memory API concepts.
+These questions do not alter the revised six-tool API split, but they should be resolved before implementation details are frozen.
+
+* Sources and prior research consulted
+
+- =SYMBOLIC-MEMORY-RESEARCH-011=, approved human decision on recall, lossless prose fallback, IDs, and natural-language forget resolution.
+- Model Context Protocol 2026-07-28 tool and authorization model.
+- Letta memory and archival-search API concepts.
+- LangMem memory management and ID-based deletion patterns.
+- Mem0 scoped memory concepts.
 - Graphiti MCP server as an existing graph-memory MCP reference.
-
-* Open questions
-
-- Should =memory_recall= exist separately from =memory_search=, or is that unnecessary API surface?
-- Should =memory_remember= default to short-term capture and allow Prolog consolidation to promote to long-term automatically, or should explicit model calls default to durable memory?
-- How much automatic symbolic extraction should happen on =memory_remember= without an LLM-side schema hint?
-- Should =memory_forget= be allowed to accept natural-language queries in addition to exact memory ids?
-- Should advanced =memory_query_symbolic= be available through the same MCP server but hidden from ordinary tool discovery?
-- How should the host bind current project/session identity across different MCP clients?
 
 * Human gate
 
 Current state: =PENDING-HUMAN-REVIEW=
 
-No design or implementation approval has been performed by ADARD/ARARD.
+This revision incorporates already-approved 011 decisions but does not approve 005 itself.
+No implementation approval has been granted.
