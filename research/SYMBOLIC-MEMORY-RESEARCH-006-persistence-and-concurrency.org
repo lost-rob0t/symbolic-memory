@@ -1,0 +1,331 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-006 Persistence and Concurrency
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+What persistence model best preserves a Prolog-first architecture while remaining safe under concurrent MCP clients and leaving room for scale?
+
+* Research conclusion
+
+The memory semantics should be Prolog-native, but the durable storage backend must remain replaceable.
+
+=library(persistency)= is a strong bootstrap backend because it persists declared Prolog predicates directly and keeps the first implementation small. It should not become part of the public memory contract, because its own documentation leaves thread synchronization to the application and notes transaction-management limitations.
+
+The research currently recommends a storage adapter boundary from the first implementation, with three candidate backend classes:
+
+1. SWI =library(persistency)= for the smallest local v1;
+2. SQLite for a single-node server needing stronger transactional/indexed storage;
+3. RocksDB for high-volume embedded key/value/index workloads where one-process ownership is acceptable.
+
+This document is research only and is not approved for implementation.
+
+* Required storage properties
+
+Regardless of backend, the domain layer needs:
+
+- stable memory IDs;
+- atomic multi-record mutation;
+- project/global namespace isolation;
+- source/provenance retention;
+- temporal fact history;
+- appendable audit events;
+- efficient lookup by scope, kind, predicate, entity, time, and status;
+- safe concurrent readers;
+- serialized/atomic conflicting writers;
+- deterministic recovery after restart;
+- storage format/version migration.
+
+Optional later properties:
+
+- replication;
+- remote multi-process access;
+- full-text indexing;
+- vector indexing;
+- large blob/text storage;
+- streaming change feeds.
+
+* Storage interface
+
+The Prolog domain model should call an internal interface rather than backend-specific predicates.
+
+#+begin_src prolog
+storage_open(Config).
+storage_close.
+
+storage_get(Id, Record).
+storage_put(Record).
+storage_delete(Id).
+storage_query(Query, Records).
+
+storage_transaction(Goal).
+storage_snapshot(Goal).
+
+storage_append_event(Event).
+#+end_src
+
+Backend selection should not change MCP tool names or core memory predicates.
+
+* Option A: library(persistency)
+
+SWI-Prolog =library(persistency)= provides persistent dynamic predicates backed by a journal file. It is extremely attractive for an initial Prolog-first implementation because records remain ordinary terms and the persistence layer has very little impedance mismatch.
+
+Strengths:
+
+- native Prolog terms;
+- tiny dependency footprint;
+- straightforward local deployment;
+- natural module encapsulation;
+- sufficient for prototype/small single-process use.
+
+Important limitations found in the official documentation:
+
+- thread safety is the caller's responsibility;
+- multi-step state transitions require explicit synchronization such as =with_mutex/2=;
+- transaction management is listed as an unresolved area in the persistency library itself;
+- it should not be assumed to provide database-grade concurrent mutation semantics automatically.
+
+Therefore a write such as "supersede old fact + add replacement + append audit event + invalidate view" must be treated as one domain transaction even if the backend requires application-level locking.
+
+* SWI dynamic-database transactions
+
+SWI-Prolog itself provides =transaction/1= semantics for dynamic predicate updates. A transaction sees its own updates while other threads see none of them until commit; multi-predicate changes become atomically visible on successful commit.
+
+This is valuable for the in-memory logical state even when persistent durability is handled separately.
+
+Research warning:
+
+Do not casually assume that wrapping =library(persistency)= generated operations in =transaction/1= automatically makes the journal persistence layer fully transactional. This interaction needs an explicit implementation experiment before design approval.
+
+The storage adapter should make the atomicity requirement explicit so the backend can implement it correctly rather than leaking assumptions upward.
+
+* Option B: SQLite
+
+SQLite is a strong candidate for the first serious server backend.
+
+SWI has multiple SQLite interfaces/packs, including ProSQLite and swiplite. SQLite provides a single-file database with mature transactional semantics and conventional indexes.
+
+Potential mapping:
+
+#+begin_example
+memories
+memory_terms
+memory_sources
+supersessions
+contradictions
+rule_sets
+rule_events
+audit_events
+project_aliases
+#+end_example
+
+Prolog terms could be stored in canonical serialized form alongside extracted indexed columns.
+
+Example conceptual record:
+
+#+begin_example
+id
+scope_type
+scope_id
+kind
+functor
+arity
+term_blob
+valid_from
+valid_until
+observed_at
+superseded_at
+status
+provenance_id
+#+end_example
+
+Strengths:
+
+- transactions;
+- mature crash recovery;
+- indexes;
+- portable single-file deployment;
+- inspectable with non-Prolog tools;
+- easier concurrency story than raw journal predicates.
+
+Costs:
+
+- term serialization layer;
+- schema migrations;
+- less direct than native persistent predicates;
+- care needed to preserve exact Prolog term semantics.
+
+* Option C: RocksDB
+
+SWI's RocksDB pack provides an embedded persistent key/value store capable of storing Prolog terms through configured mappings. It supports multiple Prolog threads but the store is owned by one process at a time. Atomic batches and merge operations are available.
+
+Potential use:
+
+- large memory stores;
+- secondary indexes;
+- retrieval caches;
+- adjacency/index structures;
+- high-write append/index workloads.
+
+Strengths:
+
+- efficient embedded storage;
+- atomic batches;
+- good fit for derived indexes and key-oriented access;
+- native-ish Prolog value mappings through the SWI binding.
+
+Costs:
+
+- one-process ownership restricts deployment topology;
+- not relational;
+- more application logic required for multi-index consistency;
+- operational dependency/build cost is larger;
+- less convenient for ad hoc temporal queries than SQLite.
+
+Current research does not recommend RocksDB as the default v1 source-of-truth store, but it may become useful as an index/cache backend.
+
+* Separate source of truth from derived indexes
+
+A major architectural point: symbolic truth storage and retrieval acceleration do not have to share one backend.
+
+Possible future composition:
+
+#+begin_example
+authoritative memory records -> SQLite/PostgreSQL/etc.
+Prolog working KB            -> dynamic predicates
+incremental derived views    -> tabled predicates
+text index                   -> FTS backend
+vector candidates            -> optional vector backend
+hot key/index cache          -> RocksDB or in-memory
+#+end_example
+
+For v1 this should remain much simpler, but the API should not assume one physical store forever.
+
+* Transaction boundary
+
+The domain mutation boundary should correspond to a logical memory event.
+
+Example supersession transaction:
+
+#+begin_src prolog
+supersede_memory(Caller, OldId, NewMemory) :-
+    storage_transaction((
+        validate_supersession(Caller, OldId, NewMemory),
+        mark_superseded(OldId),
+        storage_put(NewMemory),
+        link_supersession(NewMemory, OldId),
+        append_supersession_audit(Caller, OldId, NewMemory)
+    )).
+#+end_src
+
+Either all effects become visible or none do.
+
+* Concurrency model
+
+The MCP server may receive parallel requests from multiple clients. Core invariants cannot rely on requests arriving serially.
+
+Required races to test:
+
+- two clients supersede the same memory concurrently;
+- one client forgets while another recalls;
+- rule set changes while recall is running;
+- project isolation policy changes during retrieval;
+- duplicate memory insertion races;
+- optimizer activates a rule while another optimizer evaluates an older baseline;
+- cache/view invalidation races with fact mutation.
+
+Research recommendation:
+
+- reads use snapshot-like consistent views where possible;
+- mutations have explicit transaction boundaries;
+- version/CAS checks protect conflicting updates;
+- rule-set activation uses versioned pointers;
+- event IDs and memory IDs are generated independently of mutable row position.
+
+* Optimistic versioning
+
+Records should probably carry a version even when the backend already has transactions.
+
+#+begin_src prolog
+memory_version(MemoryId, Version).
+
+update_if_version(MemoryId, ExpectedVersion, Update) :-
+    current_version(MemoryId, ExpectedVersion),
+    apply_update(Update).
+#+end_src
+
+This allows the MCP API to reject stale mutations rather than silently overwriting a newer state.
+
+* Event log
+
+An append-only audit/event stream is useful independently of the snapshot store.
+
+#+begin_src prolog
+memory_event(EventId,
+             At,
+             Actor,
+             Scope,
+             Action,
+             Target,
+             Payload,
+             PreviousVersion,
+             NewVersion).
+#+end_src
+
+The current state can remain materialized for fast queries while events preserve mutation provenance.
+
+Research does not currently recommend full event sourcing as a requirement for v1; that would add complexity. The event log is primarily for audit, debugging, rule evaluation, and possible recovery/replay tooling.
+
+* Full-text memories
+
+Large text memories should not force every retrieval through Prolog term scanning.
+
+The storage interface should allow the original text body to remain authoritative while maintaining separate symbolic projections and optional text indexes.
+
+#+begin_src prolog
+text_memory(TextId, Scope, TextRef, Metadata).
+projection(TextId, FactId).
+#+end_src
+
+Whether =TextRef= points to an inline value, SQLite row, file/blob, or external object store should remain backend policy.
+
+* Initial recommendation to the human reviewer
+
+For the smallest useful implementation slice, current research favors:
+
+- SWI-Prolog domain engine;
+- storage adapter defined immediately;
+- =library(persistency)= permitted as the bootstrap implementation;
+- one-process server assumption documented for the bootstrap;
+- explicit mutex/transaction wrapper around compound domain mutations;
+- versioned records + append-only audit events;
+- benchmark/migration path to SQLite before claiming robust multi-client production durability.
+
+This is a recommendation only. It is not approval.
+
+* Sources consulted
+
+- SWI-Prolog =library(persistency)= documentation.
+- SWI-Prolog dynamic database transaction documentation.
+- SWI-Prolog logical update view documentation.
+- ProSQLite SWI pack documentation.
+- swiplite SWI pack documentation.
+- SWI-Prolog RocksDB pack documentation.
+- SWI-Prolog incremental tabling documentation from the previous research pass.
+
+* Open questions
+
+- Does =transaction/1= compose safely with =library(persistency)= journal operations for the exact mutation patterns needed here?
+- Which SQLite binding should be preferred if SQLite becomes the first serious backend?
+- Is a PostgreSQL backend worth researching before design approval, or is that premature for this server?
+- Should each project have a physically separate store or only logical scope columns/keys?
+- How much text should live inline versus in separate blob files?
+- What consistency level should =memory_recall= promise while concurrent writes happen?
+- Is RocksDB useful enough for indexes to justify a multi-backend architecture early?
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
