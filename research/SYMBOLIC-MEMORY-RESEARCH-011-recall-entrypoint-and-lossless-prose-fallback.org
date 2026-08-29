@@ -1,0 +1,403 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-011 Recall Entrypoint, Lossless Prose Fallback, and Forget Resolution
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+Should =memory_recall= exist separately from =memory_search=, how should recall combine symbolic memory with lossless natural-language source memory, and how should natural-language forgetting resolve to concrete memories?
+
+* Human constraints supplied for this pass
+
+The intended behavior is:
+
+- keep the original natural-language memory losslessly;
+- =memory_recall= defaults to symbolic memories;
+- exact natural-language source memory is included only when the symbolic representation lacks enough context;
+- model-facing recall must not expose raw Prolog source;
+- recall should look approximately like concise Markdown to the model;
+- models should use memory IDs directly for forgetting when IDs are already known;
+- natural-language forgetting should still exist as a smart resolution layer capable of finding and forgetting memories related to the requested topic;
+- fuzzy/natural-language forgetting must resolve to concrete memory IDs before the mutation is applied.
+
+This document is research only. It does not approve implementation.
+
+* Research conclusion
+
+=memory_recall= SHOULD exist separately from =memory_search=.
+
+They have different jobs:
+
+- =memory_search= explores or queries the authorized long-term corpus and returns candidate memories;
+- =memory_recall= compiles the smallest sufficient task-ready memory packet for the active LLM.
+
+The recommended relationship is:
+
+#+begin_example
+memory_search  -> find memories
+memory_recall  -> compile memories into current model context
+#+end_example
+
+Both may share the same retrieval engine internally, but their model-facing contracts should remain distinct.
+
+* Source memory and symbolic projection are both durable
+
+Symbolic extraction must never replace the original natural-language memory.
+
+Internally, one source memory may have zero or more symbolic projections.
+
+#+begin_src prolog
+memory_source(mem_42,
+              project(project_symbolic_memory),
+              "Recall symbolic memory first and include the exact source prose only when the symbols lose important context.",
+              SourceMeta).
+
+memory_projection(mem_42,
+                  recall_prefers(symbolic),
+                  ProjectionMeta).
+
+memory_projection(mem_42,
+                  prose_fallback(lossless_when_context_missing),
+                  ProjectionMeta).
+#+end_src
+
+The Prolog form above is internal only. Ordinary model recall should not expose these clauses.
+
+The source text remains useful for:
+
+- lossless context recovery;
+- auditing/provenance;
+- exact wording/history;
+- contradiction inspection;
+- natural-language forgetting and topic resolution;
+- rebuilding or improving symbolic projections later.
+
+* Why symbolic-first recall
+
+The recall compiler should prefer symbolic memory because it is:
+
+- compact;
+- easier to rank and compose;
+- explicit about scope/current-state semantics;
+- easier to supersede and contradict safely;
+- less likely to duplicate large prose fragments;
+- directly useful to Prolog reasoning.
+
+Natural-language source memory is a fallback, not the default payload.
+
+* When prose fallback is required
+
+A recalled symbolic memory should expand to its exact source text only when the source carries task-relevant information that the symbolic projection does not.
+
+Possible triggers include:
+
+- projection marked =lossy= or =context_required=;
+- query asks for rationale, exceptions, qualifications, sequence, or exact wording;
+- several correct symbolic facts depend on source context to interpret together;
+- unresolved contradiction requires inspection of what each source actually said;
+- confidence/trust policy requires source inspection before acting;
+- the model explicitly asks for source/history;
+- adequacy checking determines that the symbolic packet is insufficient to answer the query.
+
+Illustrative internal policy:
+
+#+begin_src prolog
+source_context_required(Query, Memory) :-
+    projection_quality(Memory, lossy),
+    query_needs_missing_context(Query, Memory).
+
+source_context_required(Query, Memory) :-
+    query_requires_exact_wording(Query),
+    has_source_memory(Memory).
+
+source_context_required(Query, Memory) :-
+    contextual_conflict(Query, Memory).
+#+end_src
+
+The invariant is:
+
+** use symbolic recall by default; attach exact source prose only when needed to preserve semantic completeness. **
+
+* Lossless means source-preserving
+
+The prose fallback must come directly from the stored source record.
+
+It MUST NOT be reconstructed by an LLM from symbolic facts and then presented as if it were original memory.
+
+Recommended source properties:
+
+- stable source ID;
+- original content preserved;
+- source timestamp;
+- provenance;
+- integrity hash or equivalent;
+- exact source span identifiers when only part of a longer source is returned.
+
+Summaries may exist, but they are separate derived memories and must not be labeled lossless.
+
+* Model-facing recall should look like Markdown, not Prolog
+
+Internal representation:
+
+#+begin_src prolog
+project_policy(symbolic_memory, recall_mode, symbolic_first).
+#+end_src
+
+Ordinary model-facing rendering:
+
+#+begin_example
+# Recalled memory
+
+## Project
+- **Architecture · Current** — Recall is symbolic-first. [mem_91]
+- **Storage · Current** — Preserve the original natural-language memory losslessly. [mem_92]
+
+## Source context
+Included only because the symbolic facts omit a relevant qualification.
+
+> [mem_92] Recall symbolic memory first and include the exact source prose only when the symbols lose important context.
+#+end_example
+
+The renderer should preserve semantic structure without exposing executable Prolog syntax.
+
+Useful lightweight fields are:
+
+- memory ID;
+- scope;
+- current/historical/contested status;
+- memory kind;
+- concise symbolic statement;
+- optional exact source context only when required.
+
+* Native MCP output can carry both readable and structured forms
+
+MCP tool results can expose model-readable text plus structured metadata.
+
+Recommended =memory_recall= output therefore has two parallel representations:
+
+1. Markdown-like =content= for the LLM;
+2. structured memory metadata for IDs, scope, provenance, and source-expansion flags.
+
+Conceptual structured result:
+
+#+begin_src json
+{
+  "memories": [
+    {
+      "id": "mem_91",
+      "scope": "project",
+      "status": "current",
+      "statement": "Recall is symbolic-first.",
+      "source_context_included": false
+    },
+    {
+      "id": "mem_92",
+      "scope": "project",
+      "status": "current",
+      "statement": "Use exact natural-language memory when symbolic context is insufficient.",
+      "source_context_included": true,
+      "source_id": "src_92"
+    }
+  ]
+}
+#+end_src
+
+The model should normally reason from the readable recall packet and use IDs for follow-up operations.
+
+* Forgetting: ID-first for models
+
+When the model already has a memory ID, forgetting should target that ID directly.
+
+Preferred call shape:
+
+#+begin_src json
+{
+  "ids": ["mem_42"]
+}
+#+end_src
+
+This is deterministic and avoids unnecessary fuzzy resolution.
+
+A model that just received =mem_42= from =memory_search= or =memory_recall= should not need to send the memory text back to the server to forget it.
+
+* Natural-language forgetting is a resolver
+
+Natural-language forgetting should still exist for requests such as:
+
+#+begin_example
+Forget everything about the old SQLite plan.
+Forget my previous preference for dark mode.
+Forget memories relating to project Foo's deprecated API.
+#+end_example
+
+The natural-language text should not be treated as the mutation target itself.
+
+Instead:
+
+#+begin_example
+natural-language request
+        ↓
+forget resolver
+        ↓
+related concrete memory IDs
+        ↓
+forget lifecycle applied to those IDs
+#+end_example
+
+The Prolog layer should own the resolver.
+
+* How natural-language forget resolution should work
+
+The resolver should search both symbolic and lossless source memory because either representation may contain useful identifying context.
+
+Recommended candidate sources:
+
+1. exact symbolic entity/fact matches;
+2. symbolic relation traversal;
+3. provenance/derivation links;
+4. full-text source matches;
+5. optional semantic/vector candidates as fallback;
+6. explicit aliases/entity normalization.
+
+Example internal direction:
+
+#+begin_src prolog
+forget_target(Query, MemoryId) :-
+    symbolic_topic_match(Query, MemoryId).
+
+forget_target(Query, MemoryId) :-
+    source_text_match(Query, MemoryId).
+
+forget_target(Query, MemoryId) :-
+    directly_related_memory(Seed, MemoryId),
+    forget_target(Query, Seed).
+#+end_src
+
+The production rule set would need bounded traversal and duplicate suppression.
+
+* "Related memories" should be semantic, not only lexical
+
+A request to forget a topic should be able to catch memories that do not repeat the exact wording.
+
+For example, forgetting "the old SQLite plan" might include:
+
+- a source note describing SQLite as the chosen backend;
+- symbolic fact =storage_backend(sqlite)=;
+- a project decision derived from that note;
+- a summary that references that decision;
+- a generated retrieval rule whose only evidence is that deprecated plan.
+
+This is one of the strongest reasons to keep provenance and dependency edges in the symbolic memory system.
+
+* Dependency-aware forgetting
+
+Forgetting a source memory may require invalidating or recomputing derived memories rather than blindly hard-deleting everything connected to it.
+
+Possible relationships:
+
+#+begin_src prolog
+derived_from(DerivedMemory, SourceMemory).
+summarizes(Summary, SourceMemory).
+rule_supported_by(Rule, SourceMemory).
+#+end_src
+
+The resolver should therefore distinguish:
+
+- direct targets explicitly about the requested topic;
+- dependent derived memories whose truth/support disappears when targets are forgotten;
+- unrelated memories that merely share a weak semantic similarity.
+
+This supports selective repair instead of corpus damage.
+
+* Forget versus hard delete
+
+The model-facing verb can remain =memory_forget=.
+
+Internally the resulting lifecycle action may be:
+
+- archive from ordinary recall;
+- invalidate;
+- supersede;
+- retract derived state;
+- physically delete when explicitly required by policy/user request.
+
+The natural-language resolver selects IDs. The memory lifecycle policy decides what "forget" means for those records.
+
+A separate explicit hard-delete/admin operation may still be useful for privacy or destructive maintenance, but it should not be required for ordinary agent forgetting.
+
+* Proposed native API shape
+
+The ordinary tool can support either IDs or a natural-language selector.
+
+#+begin_src json
+{
+  "ids": ["mem_42", "mem_43"]
+}
+#+end_src
+
+or:
+
+#+begin_src json
+{
+  "query": "memories relating to the old SQLite backend plan"
+}
+#+end_src
+
+Exactly one target mode should normally be supplied.
+
+Models should prefer =ids= whenever available.
+
+Natural-language =query= exists for broad topic/entity forgetting or when IDs are unknown.
+
+* Research evidence
+
+Current LangMem tooling provides a useful comparison:
+
+- its agent-facing memory-management tool deletes an existing memory by ID;
+- its memory manager can infer from conversation that existing memories should be removed;
+- its semantic-memory guidance shows that structured triples sometimes require additional contextual text;
+- its core API lets applications define whether removal means hard deletion, soft removal, or down-weighting.
+
+symbolic-memory should adopt the useful API distinction while moving the fuzzy target-resolution logic into an inspectable Prolog policy rather than treating an LLM-generated delete decision as opaque authority.
+
+* Research recommendation
+
+For the v1 design, retain both native tools:
+
+#+begin_example
+memory_search
+memory_recall
+#+end_example
+
+with these semantics:
+
+- search explores the memory corpus;
+- recall compiles symbolic-first context;
+- lossless prose appears only when symbolic recall is inadequate;
+- recall returns memory IDs prominently;
+- model follow-up operations use those IDs directly;
+- natural-language forgetting resolves topic requests to related concrete IDs through Prolog;
+- the resolver searches symbolic, provenance, and lossless prose representations;
+- lifecycle mutation happens only after target IDs have been resolved.
+
+* Open questions
+
+- What adequacy test determines when symbolic recall needs prose expansion?
+- Should =memory_recall= have a caller-provided context/token budget, or should the host always bind one?
+- How far should dependency closure travel during natural-language forgetting?
+- Should weak semantic-only forget matches require a higher confidence threshold than symbolic/provenance matches?
+- Should the tool return the resolved ID set in its result for auditing even when the forget operation succeeds automatically?
+- Which derived artifacts are recomputed versus merely invalidated after forgetting?
+
+* Sources consulted
+
+- LangMem memory-management API reference, including insert/update/delete support and versioned memory management.
+- LangMem memory tool reference, including ID-based deletion for agent-facing tools.
+- LangMem semantic memory guide, including structured memories with contextual fields and configurable removal semantics.
+- Model Context Protocol tool result conventions for native structured tool outputs.
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
