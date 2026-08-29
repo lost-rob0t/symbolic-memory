@@ -1,0 +1,335 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-004 Rule Evolution and Self-Optimization
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+How can a Prolog-first memory server improve its own retrieval behavior without degenerating into uncontrolled self-modifying code?
+
+* Research conclusion
+
+Self-optimization should operate through a versioned meta-memory plane. The runtime may observe retrieval behavior continuously, but it should create new rules only when measured evidence indicates a recurring pattern that the current strategy handles poorly or expensively.
+
+A generated rule must never jump directly from model text into the trusted active knowledge base. Rule evolution should be a staged lifecycle:
+
+1. observe;
+2. detect an optimization trigger;
+3. propose a constrained Prolog rule;
+4. statically validate/sandbox it;
+5. test it against regression and adversarial cases;
+6. benchmark it against the current strategy;
+7. activate only if the configured policy permits;
+8. monitor its effects;
+9. roll back or deprecate if it regresses.
+
+This document is research only and is not approved for implementation.
+
+* Meta-memory is distinct from content memory
+
+Content memory answers questions about the world, user, project, or prior events.
+Meta-memory answers questions about how memory should be organized and retrieved.
+
+#+begin_src prolog
+memory_plane(content).
+memory_plane(meta).
+
+meta_rule(Id,
+          Scope,
+          Purpose,
+          Head,
+          Body,
+          Status,
+          Evidence,
+          Metrics,
+          Version).
+#+end_src
+
+A retrieval rule is therefore itself durable memory, but it has a different authority and lifecycle from ordinary facts.
+
+* When to propose a rule
+
+The default action should be =noop=.
+
+Rule synthesis is justified only when an optimization trigger fires.
+
+#+begin_src prolog
+optimization_trigger(repeated_join(Pattern)) :-
+    retrieval_pattern(Pattern, Count, MeanCost),
+    Count >= 10,
+    MeanCost > threshold(join_cost).
+
+optimization_trigger(repeated_failure(Pattern)) :-
+    retrieval_failure_pattern(Pattern, Count),
+    Count >= 3.
+
+optimization_trigger(repeated_correction(Pattern)) :-
+    user_correction_pattern(Pattern, Count),
+    Count >= 2.
+#+end_src
+
+Possible triggers include:
+
+- repeated equivalent multi-hop retrieval plans;
+- repeated retrieval misses with the same shape;
+- repeated user corrections to the same inference behavior;
+- repeated expensive scans that can become an index or derived predicate;
+- recurring temporal-resolution logic;
+- recurring project-specific terminology mapping;
+- stable evidence that an existing rule causes irrelevant recall.
+
+A single surprising query should normally not produce a new rule.
+
+* Candidate rule representation
+
+Do not store generated rules only as opaque strings.
+Parse them into explicit terms before evaluation.
+
+#+begin_src prolog
+rule_candidate(rule_42,
+               project(symbolic_memory),
+               retrieval,
+               related_memory(Query, Memory),
+               (query_entity(Query, Entity),
+                memory_mentions(Memory, Entity),
+                active_memory(Memory)),
+               [trigger(repeated_join(entity_lookup)),
+                proposer(model),
+                status(candidate)]).
+#+end_src
+
+This makes structural validation possible before any execution.
+
+* Static validation
+
+Candidate rules should be checked for an allowlisted language subset.
+
+Reject candidates that contain capabilities unrelated to memory reasoning, including arbitrary process execution, filesystem mutation, networking, shell access, dynamic module manipulation, or unrestricted assertion/retraction.
+
+SWI-Prolog's sandbox facilities can analyze a goal's call graph and reject calls that are not considered safe. This is useful but should be defense-in-depth, not the entire policy.
+
+Additional symbolic checks should include:
+
+#+begin_src prolog
+candidate_valid(Id) :-
+    rule_candidate(Id, _, _, Head, Body, _, _),
+    allowed_head(Head),
+    allowed_body(Body),
+    bounded_recursion(Head, Body),
+    scope_safe(Head, Body),
+    no_authority_escalation(Head, Body).
+#+end_src
+
+* Rule modules
+
+Generated rules should not be asserted into core modules.
+
+Research recommendation:
+
+- core rules live in trusted source modules;
+- candidate rules live in an isolated candidate module/store;
+- testing loads candidates into a disposable evaluation module/process;
+- activated learned rules live in a versioned generated-rule module;
+- activation changes an explicit policy pointer rather than rewriting trusted source.
+
+Conceptually:
+
+#+begin_src prolog
+active_rule_set(global, ruleset_17).
+active_rule_set(project(Project), ruleset_23).
+#+end_src
+
+Rollback then becomes a pointer change.
+
+* Test-before-activation
+
+SWI-Prolog PlUnit provides a direct way to make the claims of a candidate rule executable.
+
+Every candidate should be tested against:
+
+- positive examples that motivated the rule;
+- negative examples that must not match;
+- project/global isolation cases;
+- superseded and expired memory cases;
+- contradiction cases;
+- adversarial terms;
+- regression fixtures from previously successful retrievals.
+
+The candidate must not merely make its own motivating example pass.
+
+* Benchmark-before-activation
+
+Correctness is necessary but insufficient. A new retrieval rule should show measurable utility.
+
+Candidate metrics can include:
+
+#+begin_src prolog
+metric(answer_recall).
+metric(precision).
+metric(proof_size).
+metric(candidate_count).
+metric(wall_time).
+metric(inference_count).
+metric(context_tokens).
+metric(user_corrections).
+#+end_src
+
+Activation policy might later look like:
+
+#+begin_src prolog
+candidate_wins(Candidate, Baseline) :-
+    no_correctness_regression(Candidate, Baseline),
+    improvement(Candidate, Baseline, retrieval_cost, Delta),
+    Delta >= 0.10.
+#+end_src
+
+The exact threshold is still a research question.
+
+* Incremental tabling
+
+SWI-Prolog incremental tabling is potentially a very strong fit for symbolic memory.
+
+Derived predicates can be tabled, while underlying mutable memory predicates participate in the incremental dependency graph. When facts change, dependent tables are invalidated and recomputed on demand.
+
+Potential uses:
+
+- visible-memory sets;
+- current-fact projections;
+- derived project relations;
+- contradiction indexes;
+- frequently used retrieval joins.
+
+This could make generated optimization rules useful without building a separate bespoke cache invalidation system.
+
+Caution: incremental tabling should be benchmarked with realistic mutation rates before becoming a mandatory architectural dependency.
+
+* Rule specialization versus new rule creation
+
+Not every optimization requires a new logical rule.
+
+The optimizer should be able to choose among:
+
+#+begin_src prolog
+optimization_kind(rule_synthesis).
+optimization_kind(rule_specialization).
+optimization_kind(index_creation).
+optimization_kind(tabling).
+optimization_kind(weight_adjustment).
+optimization_kind(summary_cache).
+optimization_kind(memory_promotion).
+optimization_kind(memory_demotion).
+optimization_kind(noop).
+#+end_src
+
+This matters because many apparent "reasoning" improvements are actually indexing or caching problems.
+
+* Global versus project-specific learned rules
+
+Project rules should be easier to create than global rules because their blast radius is smaller.
+
+A rule learned inside one project must not automatically become global.
+
+#+begin_src prolog
+promotion_candidate(Rule, global) :-
+    rule_scope(Rule, project(_)),
+    cross_project_evidence(Rule, Projects),
+    length(Projects, N),
+    N >= threshold(global_promotion_projects).
+#+end_src
+
+Even then, global promotion should be a distinct operation with stronger evaluation.
+
+The research does not yet recommend whether global rule promotion may ever be fully automatic.
+
+* Self-optimization without an LLM
+
+The memory server itself should not require an LLM to optimize simple cases.
+
+Pure symbolic optimizations can include:
+
+- count repeated query plans;
+- detect high-cost joins;
+- create indexes from observed predicate positions;
+- table deterministic derived predicates;
+- promote frequently retrieved stable memories;
+- expire caches based on dependency changes;
+- detect duplicate exact facts;
+- flag contradictory predicates.
+
+An LLM is useful when proposing a new abstraction or rule from semantically similar failures, but the optimizer control loop should remain functional without one.
+
+* Optional LLM-assisted rule proposal
+
+If an MCP host/agent supplies a model, the model may propose a rule through a constrained tool rather than raw code mutation.
+
+The proposal request should include:
+
+- the recurring pattern;
+- bounded examples;
+- allowed predicates;
+- desired head signature;
+- current relevant rules;
+- failed tests or cost metrics.
+
+The returned candidate then enters the same validation pipeline as any other proposal.
+
+* Relationship to SelfMem, MetaMem, and Memory-R1
+
+SelfMem supports the general idea that memory strategy itself should be optimized from feedback rather than fixed forever.
+
+MetaMem supports keeping transferable knowledge-utilization strategy as explicit meta-memory and is particularly relevant because it frames the process as symbolic optimization.
+
+Memory-R1 supports treating memory actions as explicit operations and, critically, including =NOOP= rather than forcing a memory mutation every turn.
+
+symbolic-memory can combine these ideas while keeping the optimization artifact directly inspectable as Prolog.
+
+* Auditability
+
+Every rule state transition should emit an audit event.
+
+#+begin_src prolog
+rule_event(RuleId,
+           EventId,
+           EventType,
+           At,
+           Actor,
+           Evidence,
+           PreviousVersion,
+           NewVersion).
+#+end_src
+
+Important events:
+
+- proposed;
+- validation_failed;
+- tests_failed;
+- benchmark_failed;
+- activated;
+- superseded;
+- rolled_back;
+- deprecated;
+- rejected.
+
+* Sources consulted
+
+- Yang et al., "SelfMem: Self-Optimizing Memory for AI Agents", arXiv:2607.03726.
+- Xin et al., "MetaMem: Evolving Meta-Memory for Knowledge Utilization through Self-Reflective Symbolic Optimization", Findings of ACL 2026.
+- Yan et al., "Memory-R1", ACL 2026.
+- SWI-Prolog documentation, =library(sandbox)= / =safe_goal/1=.
+- SWI-Prolog documentation, PlUnit.
+- SWI-Prolog documentation, tabled execution and incremental tabling.
+
+* Open questions
+
+- Can a generated rule ever activate automatically, or should activation always require a separate authority capability?
+- Should global rule promotion require human approval even when project-local rule evolution is automatic?
+- Which subset of Prolog syntax is allowed for generated rules?
+- Should candidate evaluation run in-process, a separate SWI process, or both?
+- What benchmark window is large enough to prevent overfitting to recent retrieval traffic?
+- How should optimizer objectives trade retrieval accuracy against latency and context size?
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
