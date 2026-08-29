@@ -1,0 +1,276 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-009 Memory Poisoning and Trust Boundaries
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+How should symbolic-memory prevent untrusted or malicious content from becoming durable cross-session influence while still allowing useful autonomous memory formation?
+
+* Research conclusion
+
+Persistent memory must be treated as a security-sensitive execution input, not as neutral storage.
+
+Recent 2026 work on memory poisoning shows that malicious content can persist across sessions, remain dormant, compose with other memories, and influence later actions. This means write-time validation alone is insufficient.
+
+symbolic-memory should therefore enforce trust at four stages:
+
+1. write admission;
+2. consolidation/promotion;
+3. retrieval composition;
+4. action-boundary use.
+
+Trust, scope, provenance, and authority should be represented explicitly and checked by deterministic Prolog policy rather than model prompting alone.
+
+* Threat model
+
+Potential poisoning sources include:
+
+- direct user input;
+- retrieved web or document content;
+- tool outputs;
+- MCP resources;
+- inter-agent messages;
+- model-generated summaries;
+- model-generated symbolic projections;
+- generated rules;
+- compromised project-local files;
+- intentionally planted persistent instructions.
+
+A record may be individually harmless but harmful when composed with another record or activated only under a later trigger.
+
+* Trust representation
+
+Each memory should carry a provenance and trust label.
+
+Illustrative shape:
+
+#+begin_src prolog
+memory(Id,
+       Scope,
+       Lifetime,
+       Kind,
+       Value,
+       [source(Source),
+        principal(Principal),
+        trust(Trust),
+        observed_at(Timestamp),
+        integrity(Integrity)]).
+#+end_src
+
+Candidate trust classes:
+
+#+begin_src prolog
+trust(user_explicit).
+trust(system_verified).
+trust(project_verified).
+trust(tool_verified).
+trust(model_inferred).
+trust(external_untrusted).
+trust(unknown).
+#+end_src
+
+These names are research placeholders; exact policy remains human-gated.
+
+* Authority is separate from trust
+
+A memory can be highly trustworthy and still lack authority to modify global policy.
+
+Examples:
+
+- a verified compiler error may be trustworthy evidence but has no authority to create a global user preference;
+- a direct user instruction may have authority to create a user preference but may still conflict with another explicit instruction and require supersession handling;
+- model inference may be useful but should not inherit user-level authority.
+
+The architecture should therefore separate:
+
+#+begin_src prolog
+trusted_for(Content, Purpose).
+authorized_for(Principal, Operation, Scope).
+#+end_src
+
+* Write admission
+
+Untrusted content may be stored as evidence without being promoted to trusted semantic memory.
+
+For example:
+
+#+begin_src prolog
+admit_observation(Source, Content, observation_only) :-
+    untrusted_source(Source),
+    safe_to_archive(Content).
+#+end_src
+
+The important distinction is that "stored" does not mean "trusted" or "eligible to become instructions."
+
+* Instruction/data separation
+
+Memories originating from documents, web pages, tool output, or other untrusted sources should be treated as data by default.
+
+A retrieved text blob containing imperative language must not gain control-plane authority merely because it was recalled.
+
+The memory system should preserve the source category and expose it to callers so the consuming agent can distinguish:
+
+- user directive;
+- project policy;
+- historical observation;
+- quoted third-party text;
+- tool result;
+- inferred conclusion.
+
+* Promotion gates
+
+Promotion from raw evidence to semantic memory should require policy appropriate to the target scope.
+
+Global memory should have the strictest gate.
+
+Illustrative concept:
+
+#+begin_src prolog
+promotion_allowed(Memory, project(Project)) :-
+    project_write_authorized(Memory, Project),
+    provenance_complete(Memory),
+    no_high_risk_conflict(Memory).
+
+promotion_allowed(Memory, global) :-
+    global_write_authorized(Memory),
+    high_authority_source(Memory),
+    provenance_complete(Memory),
+    no_high_risk_conflict(Memory).
+#+end_src
+
+* Retrieval-time validation
+
+Write-time filtering cannot detect every compositional or dormant attack.
+
+Before memory enters a working context, retrieval should reevaluate:
+
+- scope authorization;
+- temporal validity;
+- trust class;
+- integrity status;
+- conflict/supersession state;
+- whether the memory contains instruction-like content from a data-only source;
+- whether combining the selected memories creates a known unsafe pattern.
+
+This is particularly important when a low-trust memory becomes relevant only after another memory is retrieved.
+
+* Composition-aware checks
+
+The server should make the selected working-memory set available to a deterministic policy pass before returning it.
+
+Research direction:
+
+#+begin_src prolog
+safe_working_set(Query, Memories) :-
+    individually_admissible(Memories),
+    scope_consistent(Memories),
+    temporally_consistent(Memories),
+    no_forbidden_composition(Query, Memories).
+#+end_src
+
+The exact composition policy requires further research and benchmark evidence.
+
+* Rule poisoning
+
+Generated Prolog rules are a higher-risk persistence mechanism than ordinary facts because one rule can influence many future queries.
+
+Model-written rules should therefore:
+
+- enter as candidates only;
+- be parsed as data before loading;
+- be restricted to an allowlisted predicate surface;
+- reject shell/process/file/network side effects;
+- be benchmarked against regression fixtures;
+- record the memories/evidence that caused the proposal;
+- be versioned and reversible;
+- never inherit broader scope than their evidence justifies.
+
+Unrestricted =assertz/1= of model-provided clauses should not be exposed as the normal MCP path.
+
+* Scope isolation
+
+Project, session, user, tenant, and global boundaries should be enforced architecturally.
+
+Current industry guidance converges on namespace isolation with explicit authorization rather than prompting the model to "remember which project it is in."
+
+For this project, cross-scope retrieval should be intentional:
+
+- session may read its project and permitted global memory;
+- project-local memories must not leak into sibling projects;
+- global memory must not be writable merely because a client can write project memory;
+- shared memory spaces should be explicit named scopes, not implicit fallback behavior.
+
+* Integrity and auditability
+
+Memory mutation should produce an append-only audit event containing at minimum:
+
+- actor/principal;
+- operation;
+- memory id;
+- old state where applicable;
+- new state;
+- source/provenance;
+- timestamp;
+- rule/policy that authorized the mutation.
+
+Tamper-evident hashing or an append-only ledger is worth evaluating, but the exact mechanism remains open.
+
+* Selective repair
+
+A poisoning incident should be repairable without deleting the entire memory store.
+
+The system should be able to:
+
+- identify memories derived from a poisoned source;
+- identify rules derived from those memories;
+- invalidate affected derived facts;
+- recompute dependent tables/views;
+- preserve forensic history;
+- verify that repaired retrieval no longer surfaces the poisoned chain.
+
+This aligns well with Prolog dependency tracking and potentially incremental tabling.
+
+* Security benchmark layer
+
+The native test suite should add Write--Recall--Act--Forget style fixtures inspired by current memory-security benchmarks.
+
+At minimum test:
+
+- direct poisoned record;
+- two-record compositional poisoning;
+- dormant trigger-conditioned poisoning;
+- project-to-global escalation attempt;
+- tool-output-to-policy escalation attempt;
+- model-inference-to-user-fact escalation attempt;
+- poisoned rule proposal;
+- selective repair after invalidation.
+
+Useful public research benchmarks to track include MemSecBench, MemPoison, MPBench, and Bad Memory.
+
+* Research recommendation
+
+The architecture should make provenance, trust, authority, and scope mandatory fields in the memory control plane from v1 rather than bolting them on later.
+
+The safest useful default is:
+
+- capture broadly;
+- trust narrowly;
+- promote conservatively;
+- retrieve with context-sensitive validation;
+- activate rules only through a separate lifecycle.
+
+* Sources consulted
+
+- Chen et al., MemSecBench: Tracking Agent Memory Poisoning from Persistence to Consequence and Repair, 2026.
+- Gao et al., MemPoison: Uncovering Persistent Memory Threats and Structural Blind Spots in LLM Agents, 2026.
+- Dash et al., From Untrusted Input to Trusted Memory: A Systematic Study of Memory Poisoning Attacks in LLM Agents, 2026.
+- Gadgil et al., Bad Memory: Evaluating Prompt Injection Risks from Memory in Agentic Systems, 2026.
+- AWS Agentic AI Lens guidance on memory isolation and integrity controls, 2026.
+- Microsoft guidance on agentic memory safety, provenance, isolation, and retrieval-time checks, 2026.
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
