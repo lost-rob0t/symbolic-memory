@@ -1,5 +1,5 @@
 #+title: SYMBOLIC-MEMORY-RESEARCH-004 Rule Evolution and Self-Optimization
-#+status: PENDING-HUMAN-REVIEW
+#+status: APPROVED-FOR-DESIGN
 #+repo: lost-rob0t/symbolic-memory
 #+date: 2026-08-29
 
@@ -23,7 +23,7 @@ A generated rule must never jump directly from model text into the trusted activ
 8. monitor its effects;
 9. roll back or deprecate if it regresses.
 
-This document is research only and is not approved for implementation.
+This document has been approved by the human operator for design. It is not approved for implementation.
 
 * Meta-memory is distinct from content memory
 
@@ -330,6 +330,7 @@ Important events:
 
 * Human gate
 
-Current state: =PENDING-HUMAN-REVIEW=
+Current state: =APPROVED-FOR-DESIGN=
 
-No design or implementation approval has been performed by ADARD/ARARD.
+Approved by the human operator on 2026-08-29.
+Implementation approval has not been granted.
