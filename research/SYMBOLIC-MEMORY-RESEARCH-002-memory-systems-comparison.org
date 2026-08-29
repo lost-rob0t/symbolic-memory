@@ -1,0 +1,264 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-002 Memory Systems Comparison
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+Which ideas from current agent-memory systems should symbolic-memory adopt, reject, or reinterpret in Prolog?
+
+* Summary
+
+The strongest current systems converge on several useful ideas but implement them mostly with opaque embeddings, LLM-managed text, or graph extraction. symbolic-memory should take the useful control-plane ideas while keeping the durable memory substrate explicit, inspectable, and queryable as Prolog terms.
+
+The core recommendation is a hybrid symbolic memory architecture with:
+
+- explicit scope and lifetime;
+- semantic, episodic, procedural, and textual memory kinds;
+- temporal validity and provenance;
+- a synthesized working-memory view;
+- explicit supersession rather than destructive overwrite;
+- optional semantic retrieval as a fallback, not the source of truth;
+- learned or model-proposed retrieval strategies represented as auditable Prolog rules.
+
+This document is research only. It is not approved for design or implementation.
+
+* ChatGPT memory / Dreaming
+
+Public OpenAI documentation in 2026 describes memory as a continuously updated synthesis of useful context rather than only a static list of saved facts. The stated goals are freshness, continuity, relevance, and handling information that becomes stale. Project-only memory also creates a hard contextual boundary where project conversations do not pull in external memories.
+
+Useful ideas to adopt:
+
+- distinguish source history from synthesized memory state;
+- support memory consolidation instead of presenting every historical item directly;
+- track staleness and changing facts;
+- allow a project to opt into strict isolation from global memory;
+- expose provenance explaining why a memory was used;
+- maintain memory revisions rather than pretending memory is immutable.
+
+Do not copy the opaque implementation. symbolic-memory should make the synthesis process queryable and explainable.
+
+Suggested symbolic analogue:
+
+#+begin_src prolog
+memory_source(SourceId, Scope, Content, ObservedAt, Provenance).
+
+memory_fact(FactId,
+            Scope,
+            Proposition,
+            ValidFrom,
+            ValidUntil,
+            Confidence,
+            Provenance).
+
+memory_view(ViewId, Scope, GeneratedAt, Members, PolicyVersion).
+#+end_src
+
+* Letta / MemGPT family
+
+Letta exposes persistent core memory blocks that remain in context and archival memory that can be searched. Blocks can be attached and detached from agents dynamically.
+
+Useful ideas to adopt:
+
+- a small bounded always-visible memory set;
+- a larger searchable archival store;
+- dynamic attachment of context to an active agent/session;
+- separation between persistent agent state and bulk historical memory.
+
+Prolog reinterpretation:
+
+#+begin_src prolog
+attention_state(Session, MemoryId, pinned).
+attention_state(Session, MemoryId, recalled).
+attention_state(Session, MemoryId, background).
+
+working_set(Session, Memories) :-
+    findall(M,
+            visible_in_working_set(Session, M),
+            Memories).
+#+end_src
+
+The important change is that =working_set/2= should be derived from policy, not manually copied text blocks.
+
+* LangMem
+
+LangMem distinguishes semantic memory, episodic memory, and procedural memory, and organizes stored memory using namespaces.
+
+Useful ideas to adopt:
+
+- semantic memory: facts and knowledge;
+- episodic memory: prior experiences/events;
+- procedural memory: instructions or strategies;
+- namespaces for isolation and multi-level scoping;
+- direct lookup, metadata filtering, and semantic search as complementary retrieval modes.
+
+Prolog reinterpretation:
+
+#+begin_src prolog
+memory_kind(semantic).
+memory_kind(episodic).
+memory_kind(procedural).
+memory_kind(text).
+
+namespace(global).
+namespace(project(Project)).
+namespace(session(Session)).
+#+end_src
+
+Procedural memory is especially important because self-created retrieval rules are themselves a form of memory.
+
+* Mem0
+
+Mem0 exposes multi-level memory around user, agent, application, and run identifiers. Its add operation can infer structured memories from messages or retain raw content; memories may also expire.
+
+Useful ideas to adopt:
+
+- explicit scope identifiers;
+- raw storage and inferred memory as distinct artifacts;
+- expiration as first-class metadata;
+- no requirement that every input be reduced to a fact;
+- graph/linking can improve retrieval but should not define truth.
+
+symbolic-memory should go further by making the inferred representation a typed Prolog term with explicit provenance.
+
+* Graphiti / Zep
+
+Graphiti is the strongest architectural reference for facts that change over time. It keeps episodic source material, extracted entities and relations, provenance, and bi-temporal information. Its MCP server exposes episode and entity operations and supports group isolation.
+
+Useful ideas to adopt:
+
+- source episodes remain distinct from extracted facts;
+- event time and ingestion time are separate;
+- facts may become invalid without erasing history;
+- retrieval combines several strategies rather than relying only on vector similarity;
+- group/project isolation is explicit;
+- provenance links derived facts back to source episodes.
+
+Prolog analogue:
+
+#+begin_src prolog
+memory_fact(Id, Scope, Proposition,
+            valid_time(From, Until),
+            system_time(ObservedAt, SupersededAt),
+            Provenance).
+
+current_fact(Scope, Proposition) :-
+    memory_fact(_, Scope, Proposition,
+                valid_time(_, infinity),
+                system_time(_, infinity),
+                _).
+#+end_src
+
+* A-MEM
+
+A-MEM treats memory as an evolving interconnected note network. New memories can modify contextual representations and links of earlier memories.
+
+Useful ideas to adopt:
+
+- memory organization should evolve;
+- links and indexes may be derived after insertion;
+- later observations can improve how older memories are indexed without rewriting their original source.
+
+Reject one dangerous interpretation: new model output must not silently mutate the factual content of an earlier source memory. Evolve indexes, projections, and derived facts instead.
+
+* Memory-R1
+
+Memory-R1 learns explicit memory operations such as ADD, UPDATE, DELETE, and NOOP and separates memory management from answer generation.
+
+Useful ideas to adopt:
+
+- explicit memory actions;
+- NOOP is a first-class action: the system should often choose not to remember;
+- memory management and query answering should be separable;
+- optimization can eventually learn which operation is appropriate.
+
+For v1, symbolic-memory should implement these operations deterministically/rule-first rather than requiring RL.
+
+#+begin_src prolog
+memory_action(add).
+memory_action(update).
+memory_action(delete).
+memory_action(noop).
+memory_action(supersede).
+memory_action(promote).
+memory_action(demote).
+#+end_src
+
+* SelfMem
+
+SelfMem is directly relevant to the self-optimization requirement. It treats memory strategy itself as something an agent can explore, evaluate, and refine using feedback.
+
+Useful ideas to adopt:
+
+- optimize memory strategy rather than only memory contents;
+- use measured retrieval outcomes and cost;
+- compare candidate strategies against baselines;
+- retain strategy versions and allow rollback.
+
+symbolic-memory should make strategy optimization safer than a pure model-driven implementation by representing strategies as Prolog rules and requiring measurable improvement before activation.
+
+* MetaMem
+
+MetaMem is highly relevant because it explicitly evolves a meta-memory containing reusable knowledge-utilization experience and describes its process as symbolic optimization.
+
+Useful ideas to adopt:
+
+- memory about how to use memory is a distinct layer;
+- retrieval/integration experience can be distilled into reusable units;
+- preserve logical and temporal relationships between source memories;
+- optimization should improve evidence integration, not just nearest-neighbor search.
+
+Suggested distinction:
+
+#+begin_src prolog
+memory_plane(content).
+memory_plane(meta).
+
+meta_memory(RuleId,
+            retrieval_strategy,
+            Rule,
+            Evidence,
+            Status).
+#+end_src
+
+* What symbolic-memory should not become
+
+- A vector database with Prolog metadata.
+- A model writing arbitrary =assertz/1= into the trusted knowledge base.
+- A single append-only text notebook.
+- A system where project scope is merely a ranking boost rather than an enforceable boundary.
+- A system where synthesized summaries replace source provenance.
+- A rule generator that creates a new predicate after every interaction.
+
+* Recommended architecture direction
+
+The research currently favors five logical planes:
+
+1. source plane: immutable or versioned raw episodes/text;
+2. fact plane: symbolic projections and relations;
+3. temporal plane: validity, supersession, contradiction;
+4. attention plane: working-set selection for the current session;
+5. meta-memory plane: retrieval rules, indexing rules, and optimization history.
+
+All five should be queryable through Prolog.
+
+* Sources consulted
+
+- OpenAI, "Dreaming: Better memory for a more helpful ChatGPT", 2026-06-04.
+- OpenAI Help Center, Memory FAQ, updated 2026.
+- OpenAI Help Center, Projects in ChatGPT, project-only memory documentation.
+- Letta documentation, memory blocks and archival memory APIs.
+- LangMem documentation, long-term memory concepts and namespaces.
+- Mem0 documentation and repository, multi-level/scoped memory and memory add operations.
+- Rasmussen et al., "Zep: A Temporal Knowledge Graph Architecture for Agent Memory", arXiv:2501.13956.
+- Graphiti repository and MCP server documentation.
+- Xu et al., "A-MEM: Agentic Memory for LLM Agents", arXiv:2502.12110.
+- Yan et al., "Memory-R1", ACL 2026.
+- Yang et al., "SelfMem: Self-Optimizing Memory for AI Agents", arXiv:2607.03726.
+- Xin et al., "MetaMem: Evolving Meta-Memory for Knowledge Utilization through Self-Reflective Symbolic Optimization", Findings of ACL 2026.
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
