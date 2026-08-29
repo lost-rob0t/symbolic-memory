@@ -1,0 +1,197 @@
+#+title: SYMBOLIC-MEMORY-RESEARCH-007 Evaluation and Benchmarks
+#+status: PENDING-HUMAN-REVIEW
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-29
+
+* Research question
+
+How should symbolic-memory be evaluated so that improvements in recall, symbolic reasoning, temporal correctness, project isolation, and self-optimization are measurable rather than anecdotal?
+
+* Research conclusion
+
+The project needs two complementary evaluation planes:
+
+1. compatibility with public long-term-memory benchmarks;
+2. a native symbolic-memory conformance suite that tests invariants public benchmarks do not cover.
+
+A system can score well on conversational recall while still being unsafe or incorrect for this project. In particular, ordinary QA benchmarks usually do not prove scope isolation, provenance integrity, supersession correctness, rule safety, or the absence of stale-memory reuse.
+
+* External benchmark layer
+
+** LoCoMo
+
+LoCoMo evaluates very long-term conversational memory across long multi-session dialogs. Its tasks cover question answering, event summarization, and multimodal dialog generation. The benchmark is useful for:
+
+- long-range recall;
+- multi-hop retrieval;
+- temporal reasoning;
+- causal reasoning;
+- adversarial retrieval cases.
+
+symbolic-memory should support an adapter that ingests LoCoMo turns as source observations and evaluates both retrieval quality and final answer quality.
+
+** LongMemEval
+
+LongMemEval provides 500 high-quality questions designed around multiple long-term memory abilities. It is useful because it evaluates memory over interactive histories rather than a single static retrieval corpus.
+
+The project should retain a reproducible benchmark harness rather than reporting one-off model scores.
+
+** LoCoMo-Plus
+
+LoCoMo-Plus extends factual recall toward cognitive memory under cue-trigger semantic disconnect. The important lesson for symbolic-memory is that a relevant memory may encode a latent constraint rather than an explicitly repeated fact.
+
+This favors symbolic derivation and constraint consistency evaluation rather than ranking only by lexical or embedding similarity.
+
+** Forgetting-aware evaluation
+
+Recent benchmark work such as Memora highlights a major failure mode: systems often retrieve obsolete memories after the user's state changes. A useful memory system must therefore be rewarded for *not* using invalidated facts.
+
+symbolic-memory should track a forgetting/staleness metric in addition to recall.
+
+* Native symbolic conformance suite
+
+The project should define fixtures that exercise the following invariants.
+
+** Scope isolation
+
+A project-local fact must not leak into another project unless a rule explicitly derives a global relation from authorized data.
+
+#+begin_src prolog
+:- begin_tests(scope_isolation).
+
+test(project_fact_does_not_leak) :-
+    store(project(alpha), fact(secret(alpha_only))),
+    \+ recall(project(beta), secret(alpha_only)).
+
+:- end_tests(scope_isolation).
+#+end_src
+
+** Temporal supersession
+
+When a newer fact supersedes an older one, current-state retrieval should return the active fact while historical retrieval must still expose the old evidence.
+
+** Provenance preservation
+
+Every derived memory returned by the system should be explainable back to source observations and rules.
+
+** Contradiction behavior
+
+Contradictory assertions must not silently overwrite each other. Tests should distinguish:
+
+- explicit supersession;
+- unresolved conflict;
+- source disagreement;
+- temporally valid old facts;
+- invalidated facts.
+
+** Rule lifecycle
+
+Candidate rules must not affect trusted recall before activation. Rejected or deprecated rules must cease affecting current retrieval while remaining auditable.
+
+** Project/global authority
+
+A caller lacking global-write authority must fail to create or promote global memory.
+
+** Full-text fidelity
+
+When text is stored alongside symbolic projections, retrieval of the original memory must reproduce the stored source text exactly rather than a reconstructed paraphrase.
+
+** Working-memory bounds
+
+The generated working set must obey caller/model context budgets and rank evidence deterministically for an identical state and query.
+
+** Stale-memory rejection
+
+A stale fact should not be returned as current merely because it has a high retrieval score.
+
+** Explanation completeness
+
+For any returned symbolic derivation, =memory_explain= should identify at minimum:
+
+- memory or conclusion id;
+- scope;
+- temporal status;
+- source ids;
+- rule ids used;
+- confidence/trust metadata where applicable.
+
+* Retrieval metrics
+
+The system should record both answer quality and retrieval quality.
+
+Candidate metrics:
+
+- Recall@K of gold evidence;
+- Precision@K;
+- MRR/nDCG where ranking matters;
+- temporal correctness;
+- stale-memory rate;
+- project-leakage rate;
+- unsupported-derivation rate;
+- explanation completeness;
+- context tokens emitted;
+- retrieval latency;
+- number of Prolog goals explored;
+- table/cache hit rate;
+- rule-regression delta.
+
+A self-optimization is not an improvement merely because it is faster. It must preserve correctness constraints and not worsen isolation, stale-memory rate, or unsupported derivations.
+
+* Optimization gate
+
+Rule or retrieval-policy changes should be evaluated against a fixed regression corpus.
+
+Illustrative policy:
+
+#+begin_src prolog
+optimization_acceptable(Candidate) :-
+    benchmark(Candidate, Result),
+    no_scope_regression(Result),
+    no_provenance_regression(Result),
+    no_temporal_regression(Result),
+    quality_not_worse(Result),
+    material_cost_improvement(Result).
+#+end_src
+
+This is a research recommendation, not implementation approval.
+
+* Reproducibility
+
+Every benchmark run should record:
+
+- code commit;
+- Prolog version;
+- storage backend;
+- retrieval/rule version;
+- model/provider used for any model-dependent stage;
+- benchmark dataset version;
+- random seed where applicable;
+- token/context budget;
+- raw result artifact.
+
+This matters because public memory benchmark scores can vary substantially with prompt, judge, retrieval limit, and model configuration.
+
+* Research recommendation
+
+The minimum v1 benchmark gate should include:
+
+- native PlUnit conformance fixtures for scope, temporal state, provenance, rule lifecycle, and authority;
+- a small deterministic synthetic multi-project corpus;
+- LoCoMo adapter;
+- LongMemEval adapter after the basic harness is stable;
+- explicit stale-memory/forgetting evaluation.
+
+LoCoMo-Plus should be retained as a target for testing implicit constraint memory after the basic symbolic retrieval path works.
+
+* Sources consulted
+
+- Maharana et al., Evaluating Very Long-Term Conversational Memory of LLM Agents, ACL 2024 / LoCoMo.
+- Wu et al., LongMemEval, ICLR 2025; repository notes LongMemEval-V2 in 2026.
+- Li et al., LoCoMo-Plus: Beyond-Factual Cognitive Memory Evaluation Framework for LLM Agents, ACL 2026.
+- Uddin et al., From Recall to Forgetting: Benchmarking Long-Term Memory for Personalized Agents / Memora, 2026.
+
+* Human gate
+
+Current state: =PENDING-HUMAN-REVIEW=
+
+No design or implementation approval has been performed by ADARD/ARARD.
