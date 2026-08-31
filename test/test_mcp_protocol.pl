@@ -56,6 +56,42 @@ test(legacy_initialize_remains_available) :-
     get_dict(protocolVersion, Result, Version),
     assertion(Version == "2025-11-25").
 
+test(notification_without_id_is_ignored) :-
+    context(Context),
+    Request = _{jsonrpc:"2.0", method:"notifications/custom", params:_{}},
+    mcp_handle(Context, Request, Response),
+    assertion(Response == none).
+
+test(tools_call_without_params_returns_invalid_params) :-
+    context(Context),
+    Request = _{jsonrpc:"2.0", id:"missing-params", method:"tools/call"},
+    mcp_handle(Context, Request, Response),
+    get_dict(error, Response, Error),
+    get_dict(code, Error, Code),
+    assertion(Code == -32602).
+
+test(missing_required_tool_argument_is_tool_error,
+     [ setup(new_store(Path)),
+       cleanup(cleanup_store(Path))
+     ]) :-
+    context(Context),
+    modern_meta(Meta),
+    Request = _{ jsonrpc:"2.0",
+                 id:"missing-argument",
+                 method:"tools/call",
+                 params:_{ name:"memory_get",
+                           arguments:_{},
+                           '_meta':Meta
+                         }
+               },
+    mcp_handle(Context, Request, Response),
+    get_dict(result, Response, Result),
+    get_dict(isError, Result, IsError),
+    assertion(IsError == true),
+    get_dict(content, Result, [Content]),
+    get_dict(text, Content, Message),
+    sub_string(Message, _, _, _, "existence_error(tool_argument,id)").
+
 test(missing_memory_is_a_tool_error,
      [ setup(new_store(Path)),
        cleanup(cleanup_store(Path))
