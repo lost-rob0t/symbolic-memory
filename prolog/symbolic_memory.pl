@@ -28,6 +28,11 @@ memory_remember(Context, MemoryText, Options, Result) :-
 memory_get(Context, MemoryId0, Result) :-
     must_be(dict, Context),
     normalize_id(MemoryId0, MemoryId),
+    storage_snapshot(
+        memory_get_snapshot(Context, MemoryId, Result)
+    ).
+
+memory_get_snapshot(Context, MemoryId, Result) :-
     require_memory(MemoryId, SourceId, Namespace, Lifetime, Kind,
                    Version, Lifecycle, CreatedAt),
     (   context_can_see_namespace(Context, Namespace)
