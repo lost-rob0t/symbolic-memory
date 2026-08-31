@@ -24,20 +24,23 @@ mcp_loop(Context) :-
     json_read_dict(user_input, Request, [value_string_as(string)]),
     (   Request == end_of_file
     ->  true
-    ;   catch(mcp_handle(Context, Request, Response),
-              Error,
-              rpc_exception_response(Request, Error, Response)),
+    ;   mcp_handle(Context, Request, Response),
         emit_response(Response),
         mcp_loop(Context)
     ).
 
-mcp_handle(_, Request, Response) :-
+mcp_handle(Context, Request, Response) :-
+    catch(mcp_dispatch(Context, Request, Response),
+          Error,
+          rpc_exception_response(Request, Error, Response)).
+
+mcp_dispatch(_, Request, Response) :-
     method_is(Request, 'server/discover'),
     !,
     request_id(Request, Id),
     discover_result(Result),
     Response = _{jsonrpc:"2.0", id:Id, result:Result}.
-mcp_handle(_, Request, Response) :-
+mcp_dispatch(_, Request, Response) :-
     method_is(Request, initialize),
     !,
     request_id(Request, Id),
@@ -50,10 +53,10 @@ mcp_handle(_, Request, Response) :-
                             instructions:"Durable Prolog-first memory. Host configuration defines identity and authority."
                           }
                 }.
-mcp_handle(_, Request, none) :-
+mcp_dispatch(_, Request, none) :-
     method_is(Request, 'notifications/initialized'),
     !.
-mcp_handle(_, Request, Response) :-
+mcp_dispatch(_, Request, Response) :-
     method_is(Request, 'tools/list'),
     !,
     validate_request_protocol(Request),
@@ -61,7 +64,7 @@ mcp_handle(_, Request, Response) :-
     tool_definitions(Tools),
     tools_list_result(Request, Tools, Result),
     Response = _{jsonrpc:"2.0", id:Id, result:Result}.
-mcp_handle(Context, Request, Response) :-
+mcp_dispatch(Context, Request, Response) :-
     method_is(Request, 'tools/call'),
     !,
     validate_request_protocol(Request),
@@ -78,7 +81,7 @@ mcp_handle(Context, Request, Response) :-
           tool_error_result(Error, ToolResult0)),
     complete_result_for_request(Request, ToolResult0, ToolResult),
     Response = _{jsonrpc:"2.0", id:Id, result:ToolResult}.
-mcp_handle(_, Request, Response) :-
+mcp_dispatch(_, Request, Response) :-
     request_id(Request, Id),
     Response = _{ jsonrpc:"2.0",
                   id:Id,
@@ -124,7 +127,7 @@ validate_request_protocol(Request) :-
     ->  modern_protocol(Modern),
         (   Protocol == Modern
         ->  true
-        ;   throw(error(domain_error(mcp_protocol_version, Protocol), _))
+        ;   throw(error(mcp_unsupported_protocol(Protocol), _))
         )
     ;   true
     ).
@@ -204,6 +207,20 @@ tool_error_result(Error, Result) :-
                 isError:true
               }.
 
+rpc_exception_response(Request,
+                       error(mcp_unsupported_protocol(Requested), _),
+                       Response) :-
+    !,
+    request_id(Request, Id),
+    modern_protocol(Modern),
+    legacy_protocol(Legacy),
+    Response = _{ jsonrpc:"2.0",
+                  id:Id,
+                  error:_{ code:(-32022),
+                           message:"Unsupported protocol version",
+                           data:_{supported:[Modern, Legacy], requested:Requested}
+                         }
+                }.
 rpc_exception_response(Request, Error, Response) :-
     request_id(Request, Id),
     term_string(Error, Message),
