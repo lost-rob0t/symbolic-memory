@@ -78,7 +78,8 @@ call_tool(Context, memory_remember, Arguments, ToolResult) :-
     get_dict(memory, Arguments, Memory),
     tool_options(Arguments, Options),
     memory_remember(Context, Memory, Options, Result),
-    format(string(Text), "Stored memory ~w", [Result.id]),
+    get_dict(id, Result, MemoryId),
+    format(string(Text), "Stored memory ~w", [MemoryId]),
     ToolResult = _{ content:[_{type:"text", text:Text}],
                     structuredContent:Result,
                     isError:false
@@ -86,8 +87,8 @@ call_tool(Context, memory_remember, Arguments, ToolResult) :-
 call_tool(Context, memory_get, Arguments, ToolResult) :-
     get_dict(id, Arguments, MemoryId),
     memory_get(Context, MemoryId, Result),
-    format(string(Text), "~s", [Result.source_text]),
-    ToolResult = _{ content:[_{type:"text", text:Text}],
+    get_dict(source_text, Result, SourceText),
+    ToolResult = _{ content:[_{type:"text", text:SourceText}],
                     structuredContent:Result,
                     isError:false
                   }.
