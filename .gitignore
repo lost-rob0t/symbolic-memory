@@ -1,0 +1,6 @@
+.direnv/
+result
+result-*
+.symbolic-memory.db
+.symbolic-memory.db.*
+.symbolic-memory-*.tmp
