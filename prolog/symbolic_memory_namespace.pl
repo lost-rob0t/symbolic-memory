@@ -120,10 +120,9 @@ context_session_id(Context, SessionId) :-
 
 normalize_remote(Remote0, Normalized) :-
     normalize_text(Remote0, Remote1),
-    string_lower(Remote1, Lower0),
-    normalize_git_ssh(Lower0, Lower1),
-    strip_trailing_slash(Lower1, Lower2),
-    strip_dot_git(Lower2, Normalized).
+    normalize_git_ssh(Remote1, Remote2),
+    strip_trailing_slash(Remote2, Remote3),
+    strip_dot_git(Remote3, Normalized).
 
 normalize_git_ssh(Input, Output) :-
     (   sub_string(Input, 0, 4, _, "git@"),
