@@ -15,7 +15,8 @@ new_id(Prefix, Id) :-
 
 now_iso8601(Timestamp) :-
     get_time(Now),
-    format_time(string(Timestamp), '%FT%TZ', Now, posix).
+    stamp_date_time(Now, UTCDateTime, 'UTC'),
+    format_time(string(Timestamp), '%FT%TZ', UTCDateTime, posix).
 
 text_atom(Text, Atom) :-
     (   atom(Text)
