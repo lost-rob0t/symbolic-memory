@@ -28,15 +28,15 @@ memory_remember(Context, MemoryText, Options, Result) :-
 memory_get(Context, MemoryId0, Result) :-
     must_be(dict, Context),
     normalize_id(MemoryId0, MemoryId),
-    storage_get_memory(MemoryId, SourceId, Namespace, Lifetime, Kind,
-                       Version, Lifecycle, CreatedAt),
+    require_memory(MemoryId, SourceId, Namespace, Lifetime, Kind,
+                   Version, Lifecycle, CreatedAt),
     (   context_can_see_namespace(Context, Namespace)
     ->  true
     ;   throw(error(permission_error(read, memory, Namespace),
                     context(reason, namespace_not_visible)))
     ),
     authorize_read(Context, Namespace),
-    storage_get_source(SourceId, Text, Provenance, Principal, Trust, SourceCreatedAt),
+    require_source(SourceId, Text, Provenance, Principal, Trust, SourceCreatedAt),
     namespace_json(Namespace, NamespaceJson),
     Result = _{ id:MemoryId,
                 source_id:SourceId,
@@ -52,6 +52,21 @@ memory_get(Context, MemoryId0, Result) :-
                 version:Version,
                 lifecycle:Lifecycle
               }.
+
+require_memory(MemoryId, SourceId, Namespace, Lifetime, Kind,
+               Version, Lifecycle, CreatedAt) :-
+    (   storage_get_memory(MemoryId, SourceId, Namespace, Lifetime, Kind,
+                           Version, Lifecycle, CreatedAt)
+    ->  true
+    ;   throw(error(existence_error(memory, MemoryId), _))
+    ).
+
+require_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt) :-
+    (   storage_get_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt)
+    ->  true
+    ;   throw(error(existence_error(memory_source, SourceId),
+                    context(reason, corrupt_memory_record)))
+    ).
 
 remember_tx(Context, MemoryText, Options, Result) :-
     resolve_write_namespace(Context, Options, Namespace),
