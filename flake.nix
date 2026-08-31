@@ -11,12 +11,13 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          prologSource = ./prolog;
         in {
           default = pkgs.writeShellApplication {
             name = "symbolic-memory-mcp";
             runtimeInputs = [ pkgs.swiProlog ];
             text = ''
-              exec swipl -q -s ${./prolog/symbolic_memory_mcp.pl} -- "$@"
+              exec swipl -q -s ${prologSource}/symbolic_memory_mcp.pl -- "$@"
             '';
           };
         });
