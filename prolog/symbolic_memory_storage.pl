@@ -2,6 +2,7 @@
           [ storage_open/1,
             storage_close/0,
             storage_transaction/1,
+            storage_snapshot/1,
             storage_project_by_id/4,
             storage_project_by_remote/4,
             storage_project_by_path/4,
@@ -22,12 +23,15 @@
 :- use_module(library(uuid)).
 
 :- meta_predicate storage_transaction(0).
+:- meta_predicate storage_snapshot(0).
 
 :- dynamic storage_path/1.
 :- dynamic stored_project/4.
 :- dynamic stored_source/6.
 :- dynamic stored_memory/8.
 :- dynamic stored_audit/10.
+
+storage_format_version(1).
 
 storage_open(Config) :-
     must_be(dict, Config),
@@ -41,9 +45,16 @@ storage_close :-
                clear_runtime_state).
 
 storage_transaction(Goal) :-
-    ensure_open,
     with_mutex(symbolic_memory_storage,
-               transaction_locked(Goal)).
+               ( ensure_open,
+                 transaction_locked(Goal)
+               )).
+
+storage_snapshot(Goal) :-
+    with_mutex(symbolic_memory_storage,
+               ( ensure_open,
+                 call(Goal)
+               )).
 
 storage_project_by_id(Id, Remote, Aliases, CreatedAt) :-
     ensure_open,
@@ -88,19 +99,22 @@ storage_get_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt) :-
     stored_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt).
 
 storage_audit_for_target(TargetId, Events) :-
-    ensure_open,
-    findall(audit(EventId, At, Principal, Action, Namespace, TargetId,
-                  Provenance, Capability, PreviousVersion, NewVersion),
-            stored_audit(EventId, At, Principal, Action, Namespace, TargetId,
-                         Provenance, Capability, PreviousVersion, NewVersion),
-            Events).
+    storage_snapshot(
+        findall(audit(EventId, At, Principal, Action, Namespace, TargetId,
+                      Provenance, Capability, PreviousVersion, NewVersion),
+                stored_audit(EventId, At, Principal, Action, Namespace, TargetId,
+                             Provenance, Capability, PreviousVersion, NewVersion),
+                Events)
+    ).
 
 storage_counts(Projects, Sources, Memories, Audits) :-
-    ensure_open,
-    aggregate_all(count, stored_project(_, _, _, _), Projects),
-    aggregate_all(count, stored_source(_, _, _, _, _, _), Sources),
-    aggregate_all(count, stored_memory(_, _, _, _, _, _, _, _), Memories),
-    aggregate_all(count, stored_audit(_, _, _, _, _, _, _, _, _, _), Audits).
+    storage_snapshot(
+        ( aggregate_all(count, stored_project(_, _, _, _), Projects),
+          aggregate_all(count, stored_source(_, _, _, _, _, _), Sources),
+          aggregate_all(count, stored_memory(_, _, _, _, _, _, _, _), Memories),
+          aggregate_all(count, stored_audit(_, _, _, _, _, _, _, _, _, _), Audits)
+        )
+    ).
 
 open_locked(Path) :-
     (   storage_path(Path)
@@ -109,7 +123,11 @@ open_locked(Path) :-
         file_directory_name(Path, Dir),
         make_directory_path(Dir),
         assertz(storage_path(Path)),
-        load_snapshot(Path)
+        catch(load_snapshot(Path),
+              Error,
+              ( clear_runtime_state,
+                throw(Error)
+              ))
     ).
 
 transaction_locked(Goal) :-
@@ -154,22 +172,32 @@ load_snapshot(Path) :-
             open(Path, read, Stream, [encoding(utf8)]),
             read_term(Stream, State, []),
             close(Stream)),
-        (   State == end_of_file
-        ->  true
-        ;   restore_state(State)
-        )
+        load_state_term(State)
     ;   true
     ).
 
-snapshot_state(snapshot(Projects, Sources, Memories, Audits)) :-
+load_state_term(end_of_file) :- !.
+load_state_term(State) :-
+    (   State = snapshot(Version, _, _, _, _)
+    ->  storage_format_version(Expected),
+        (   Version == Expected
+        ->  restore_state(State)
+        ;   throw(error(domain_error(storage_format_version, Version),
+                        context(expected, Expected)))
+        )
+    ;   throw(error(domain_error(symbolic_memory_snapshot, State), _))
+    ).
+
+snapshot_state(snapshot(Version, Projects, Sources, Memories, Audits)) :-
+    storage_format_version(Version),
     findall(project(Id, Remote, Aliases, CreatedAt),
             stored_project(Id, Remote, Aliases, CreatedAt),
             Projects),
     findall(source(Id, Text, Provenance, Principal, Trust, CreatedAt),
             stored_source(Id, Text, Provenance, Principal, Trust, CreatedAt),
             Sources),
-    findall(memory(Id, SourceId, Namespace, Lifetime, Kind, Version, Lifecycle, CreatedAt),
-            stored_memory(Id, SourceId, Namespace, Lifetime, Kind, Version, Lifecycle, CreatedAt),
+    findall(memory(Id, SourceId, Namespace, Lifetime, Kind, RecordVersion, Lifecycle, CreatedAt),
+            stored_memory(Id, SourceId, Namespace, Lifetime, Kind, RecordVersion, Lifecycle, CreatedAt),
             Memories),
     findall(audit(EventId, At, Principal, Action, Namespace, TargetId,
                   Provenance, Capability, PreviousVersion, NewVersion),
@@ -177,7 +205,8 @@ snapshot_state(snapshot(Projects, Sources, Memories, Audits)) :-
                          Provenance, Capability, PreviousVersion, NewVersion),
             Audits).
 
-restore_state(snapshot(Projects, Sources, Memories, Audits)) :-
+restore_state(snapshot(Version, Projects, Sources, Memories, Audits)) :-
+    storage_format_version(Version),
     retractall(stored_project(_, _, _, _)),
     retractall(stored_source(_, _, _, _, _, _)),
     retractall(stored_memory(_, _, _, _, _, _, _, _)),
