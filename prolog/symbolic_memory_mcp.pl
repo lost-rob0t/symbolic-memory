@@ -9,6 +9,9 @@
 
 :- initialization(main, main).
 
+modern_protocol("2026-07-28").
+legacy_protocol("2025-11-25").
+
 main :-
     host_config(Context, DatabasePath),
     setup_call_cleanup(
@@ -29,32 +32,39 @@ mcp_loop(Context) :-
     ).
 
 mcp_handle(_, Request, Response) :-
-    get_dict(method, Request, Method0),
-    normalize_atom(Method0, initialize),
+    method_is(Request, 'server/discover'),
     !,
     request_id(Request, Id),
+    discover_result(Result),
+    Response = _{jsonrpc:"2.0", id:Id, result:Result}.
+mcp_handle(_, Request, Response) :-
+    method_is(Request, initialize),
+    !,
+    request_id(Request, Id),
+    legacy_protocol(Protocol),
     Response = _{ jsonrpc:"2.0",
                   id:Id,
-                  result:_{ protocolVersion:"2026-07-28",
+                  result:_{ protocolVersion:Protocol,
                             capabilities:_{tools:_{}},
-                            serverInfo:_{name:"symbolic-memory", version:"0.1.0"}
+                            serverInfo:_{name:"symbolic-memory", version:"0.1.0"},
+                            instructions:"Durable Prolog-first memory. Host configuration defines identity and authority."
                           }
                 }.
 mcp_handle(_, Request, none) :-
-    get_dict(method, Request, Method0),
-    normalize_atom(Method0, 'notifications/initialized'),
+    method_is(Request, 'notifications/initialized'),
     !.
 mcp_handle(_, Request, Response) :-
-    get_dict(method, Request, Method0),
-    normalize_atom(Method0, 'tools/list'),
+    method_is(Request, 'tools/list'),
     !,
+    validate_request_protocol(Request),
     request_id(Request, Id),
     tool_definitions(Tools),
-    Response = _{jsonrpc:"2.0", id:Id, result:_{tools:Tools}}.
+    tools_list_result(Request, Tools, Result),
+    Response = _{jsonrpc:"2.0", id:Id, result:Result}.
 mcp_handle(Context, Request, Response) :-
-    get_dict(method, Request, Method0),
-    normalize_atom(Method0, 'tools/call'),
+    method_is(Request, 'tools/call'),
     !,
+    validate_request_protocol(Request),
     request_id(Request, Id),
     get_dict(params, Request, Params),
     get_dict(name, Params, Name0),
@@ -63,9 +73,10 @@ mcp_handle(Context, Request, Response) :-
     ->  true
     ;   Arguments = _{}
     ),
-    catch(call_tool(Context, Name, Arguments, ToolResult),
+    catch(call_tool(Context, Name, Arguments, ToolResult0),
           Error,
-          tool_error_result(Error, ToolResult)),
+          tool_error_result(Error, ToolResult0)),
+    complete_result_for_request(Request, ToolResult0, ToolResult),
     Response = _{jsonrpc:"2.0", id:Id, result:ToolResult}.
 mcp_handle(_, Request, Response) :-
     request_id(Request, Id),
@@ -73,6 +84,64 @@ mcp_handle(_, Request, Response) :-
                   id:Id,
                   error:_{code:(-32601), message:"Method not found"}
                 }.
+
+discover_result(Result) :-
+    modern_protocol(Modern),
+    legacy_protocol(Legacy),
+    server_meta(Meta),
+    Result = _{ resultType:"complete",
+                supportedVersions:[Modern, Legacy],
+                capabilities:_{tools:_{}},
+                '_meta':Meta,
+                instructions:"Durable Prolog-first memory. Host configuration defines identity and authority.",
+                ttlMs:3600000,
+                cacheScope:"public"
+              }.
+
+tools_list_result(Request, Tools, Result) :-
+    (   modern_request(Request)
+    ->  server_meta(Meta),
+        Result = _{ resultType:"complete",
+                    tools:Tools,
+                    '_meta':Meta,
+                    ttlMs:3600000,
+                    cacheScope:"public"
+                  }
+    ;   Result = _{tools:Tools}
+    ).
+
+complete_result_for_request(Request, In, Out) :-
+    (   modern_request(Request)
+    ->  server_meta(Meta),
+        put_dict(_{resultType:"complete", '_meta':Meta}, In, Out)
+    ;   Out = In
+    ).
+
+server_meta(_{'io.modelcontextprotocol/serverInfo':_{name:"symbolic-memory", version:"0.1.0"}}).
+
+validate_request_protocol(Request) :-
+    (   request_protocol(Request, Protocol)
+    ->  modern_protocol(Modern),
+        (   Protocol == Modern
+        ->  true
+        ;   throw(error(domain_error(mcp_protocol_version, Protocol), _))
+        )
+    ;   true
+    ).
+
+request_protocol(Request, Protocol) :-
+    get_dict(params, Request, Params),
+    get_dict('_meta', Params, Meta),
+    get_dict('io.modelcontextprotocol/protocolVersion', Meta, Protocol0),
+    normalize_string(Protocol0, Protocol).
+
+modern_request(Request) :-
+    request_protocol(Request, Protocol),
+    modern_protocol(Protocol).
+
+method_is(Request, Method) :-
+    get_dict(method, Request, Method0),
+    normalize_atom(Method0, Method).
 
 call_tool(Context, memory_remember, Arguments, ToolResult) :-
     get_dict(memory, Arguments, Memory),
@@ -188,4 +257,11 @@ normalize_atom(Value, Atom) :-
     ->  Atom = Value
     ;   string(Value)
     ->  atom_string(Atom, Value)
+    ).
+
+normalize_string(Value, String) :-
+    (   string(Value)
+    ->  String = Value
+    ;   atom(Value)
+    ->  atom_string(Value, String)
     ).
