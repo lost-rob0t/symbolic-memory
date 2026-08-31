@@ -19,6 +19,10 @@ session_context(Capabilities, Context) :-
                  session_id:"session-a"
                }.
 
+modern_meta(_{'io.modelcontextprotocol/protocolVersion':"2026-07-28",
+              'io.modelcontextprotocol/clientInfo':_{name:"test-client", version:"1.0.0"},
+              'io.modelcontextprotocol/clientCapabilities':_{}}).
+
 new_store(Path) :-
     tmp_file(symbolic_memory, Path),
     delete_if_exists(Path),
@@ -249,7 +253,25 @@ test(session_fallback_is_explicitly_session_scoped,
     get_dict(id, Stored, Id),
     memory_get(Context, Id, _).
 
-test(mcp_remember_then_get_smoke,
+test(mcp_modern_discovery,
+     [ setup(new_store(Path)),
+       cleanup(cleanup_store(Path))
+     ]) :-
+    session_context([memory_read], Context),
+    modern_meta(Meta),
+    Request = _{ jsonrpc:"2.0",
+                 id:"discover-1",
+                 method:"server/discover",
+                 params:_{'_meta':Meta}
+               },
+    mcp_handle(Context, Request, Response),
+    get_dict(result, Response, Result),
+    get_dict(supportedVersions, Result, Versions),
+    assertion(member("2026-07-28", Versions)),
+    get_dict(resultType, Result, ResultType),
+    assertion(ResultType == "complete").
+
+test(mcp_modern_remember_then_get_smoke,
      [ setup(new_store(Path)),
        cleanup(cleanup_store(Path))
      ]) :-
@@ -257,28 +279,33 @@ test(mcp_remember_then_get_smoke,
                     [memory_read, memory_write_project],
                     model_inferred,
                     Context),
+    modern_meta(Meta),
     RememberRequest = _{ jsonrpc:"2.0",
                          id:1,
                          method:"tools/call",
                          params:_{ name:"memory_remember",
-                                   arguments:_{memory:"through MCP"}
+                                   arguments:_{memory:"through MCP"},
+                                   '_meta':Meta
                                  }
                        },
     mcp_handle(Context, RememberRequest, RememberResponse),
     get_dict(result, RememberResponse, RememberToolResult),
     get_dict(isError, RememberToolResult, false),
+    get_dict(resultType, RememberToolResult, "complete"),
     get_dict(structuredContent, RememberToolResult, Stored),
     get_dict(id, Stored, MemoryId),
     GetRequest = _{ jsonrpc:"2.0",
                     id:2,
                     method:"tools/call",
                     params:_{ name:"memory_get",
-                              arguments:_{id:MemoryId}
+                              arguments:_{id:MemoryId},
+                              '_meta':Meta
                             }
                   },
     mcp_handle(Context, GetRequest, GetResponse),
     get_dict(result, GetResponse, GetToolResult),
     get_dict(isError, GetToolResult, false),
+    get_dict(resultType, GetToolResult, "complete"),
     get_dict(structuredContent, GetToolResult, Memory),
     get_dict(source_text, Memory, Text),
     assertion(Text == "through MCP").
