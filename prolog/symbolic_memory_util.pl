@@ -10,7 +10,7 @@
 
 new_id(Prefix, Id) :-
     must_be(atom, Prefix),
-    uuid(UUID),
+    uuid(UUID, [version(4)]),
     atomic_list_concat([Prefix, UUID], '_', Id).
 
 now_iso8601(Timestamp) :-
