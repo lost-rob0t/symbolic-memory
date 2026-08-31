@@ -50,19 +50,29 @@ Useful host variables:
 - `SYMBOLIC_MEMORY_SOURCE_CLASS`
 - `SYMBOLIC_MEMORY_CAPABILITIES`
 
-## Example native calls
+## MCP protocol
 
-Remember:
+The stdio adapter supports current stateless MCP `2026-07-28` and retains legacy `2025-11-25` initialization compatibility.
 
-```json
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_remember","arguments":{"memory":"Use Prolog as the authority for this project."}}}
-```
-
-Get:
+A modern client can discover the server without creating a session:
 
 ```json
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_get","arguments":{"id":"mem_<opaque-id>"}}}
+{"jsonrpc":"2.0","id":"discover-1","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"example","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
 ```
+
+For modern requests, carry protocol/client metadata on each request. For example, remember:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_remember","arguments":{"memory":"Use Prolog as the authority for this project."},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"example","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+```
+
+Then get the returned stable ID:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_get","arguments":{"id":"mem_<opaque-id>"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"example","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+```
+
+Unsupported modern protocol versions return JSON-RPC error `-32022` together with the requested and supported versions.
 
 ## Storage guarantees in this slice
 
