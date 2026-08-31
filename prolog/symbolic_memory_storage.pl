@@ -15,6 +15,7 @@
             storage_counts/4
           ]).
 
+:- use_module(library(aggregate)).
 :- use_module(library(error)).
 :- use_module(library(filesex)).
 :- use_module(library(lists)).
