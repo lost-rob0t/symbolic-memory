@@ -1,0 +1,47 @@
+#+title: Symbolic Memory Implementation Approval 2026-08-31
+#+status: ACTIVE
+#+repo: lost-rob0t/symbolic-memory
+#+date: 2026-08-31
+
+* Operator decision
+
+The human operator explicitly approved all current symbolic-memory research documents for implementation on 2026-08-31.
+
+This is the durable human-gate record required by =research/ADARD-GOVERNANCE.org=.
+
+The following documents are =APPROVED-FOR-IMPLEMENTATION=:
+
+- =research/SYMBOLIC-MEMORY-RESEARCH-001-tiered-symbolic-memory.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-002-memory-systems-comparison.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-003-temporal-synthesis-and-retrieval.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-004-rule-evolution-and-self-optimization.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-005-mcp-contract-and-authority.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-006-persistence-and-concurrency.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-007-evaluation-and-benchmarks.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-008-consolidation-forgetting-and-memory-value.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-009-memory-poisoning-and-trust-boundaries.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-010-project-identity-and-namespace-model.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-011-recall-entrypoint-and-lossless-prose-fallback.org=
+- =research/SYMBOLIC-MEMORY-RESEARCH-012-explicit-remember-durability.org=
+
+* Authority
+
+This file records a human decision. ADARD/ARARD did not autonomously promote these documents.
+
+Where an older per-document header or Human gate section still says =APPROVED-FOR-DESIGN= or =PENDING-HUMAN-REVIEW=, this later operator decision is the authoritative implementation gate for the documents listed above. Future editorial cleanup may normalize those embedded status lines, but implementation workers MUST NOT treat the stale embedded status as revoking this approval.
+
+* Implementation boundary
+
+Approval permits implementation of the researched behavior. It does not waive the invariants documented by the research, especially:
+
+- project/global namespace isolation;
+- lossless source preservation;
+- stable memory IDs;
+- explicit provenance, trust, and authority;
+- transaction/audit boundaries around mutation;
+- symbolic-first recall with lossless prose fallback only when needed;
+- ID-first forgetting and concrete-ID resolution before mutation;
+- staged, reversible generated-rule activation;
+- deterministic conformance tests for scope, temporal state, provenance, authority, and stale-memory rejection.
+
+Implementation SHOULD proceed in narrow vertical slices with executable tests before later optimization work.
