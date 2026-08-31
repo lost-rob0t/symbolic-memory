@@ -3,6 +3,7 @@
             mcp_handle/3
           ]).
 
+:- use_module(library(error)).
 :- use_module(library(http/json)).
 :- use_module(library(lists)).
 :- use_module(symbolic_memory).
@@ -34,6 +35,9 @@ mcp_handle(Context, Request, Response) :-
           Error,
           rpc_exception_response(Request, Error, Response)).
 
+mcp_dispatch(_, Request, none) :-
+    \+ get_dict(id, Request, _),
+    !.
 mcp_dispatch(_, Request, Response) :-
     method_is(Request, 'server/discover'),
     !,
@@ -53,9 +57,6 @@ mcp_dispatch(_, Request, Response) :-
                             instructions:"Durable Prolog-first memory. Host configuration defines identity and authority."
                           }
                 }.
-mcp_dispatch(_, Request, none) :-
-    method_is(Request, 'notifications/initialized'),
-    !.
 mcp_dispatch(_, Request, Response) :-
     method_is(Request, 'tools/list'),
     !,
@@ -69,11 +70,11 @@ mcp_dispatch(Context, Request, Response) :-
     !,
     validate_request_protocol(Request),
     request_id(Request, Id),
-    get_dict(params, Request, Params),
-    get_dict(name, Params, Name0),
+    require_request_field(Request, params, Params),
+    require_request_field(Params, name, Name0),
     normalize_atom(Name0, Name),
     (   get_dict(arguments, Params, Arguments)
-    ->  true
+    ->  must_be(dict, Arguments)
     ;   Arguments = _{}
     ),
     catch(call_tool(Context, Name, Arguments, ToolResult0),
@@ -147,7 +148,8 @@ method_is(Request, Method) :-
     normalize_atom(Method0, Method).
 
 call_tool(Context, memory_remember, Arguments, ToolResult) :-
-    get_dict(memory, Arguments, Memory),
+    !,
+    require_tool_argument(Arguments, memory, Memory),
     tool_options(Arguments, Options),
     memory_remember(Context, Memory, Options, Result),
     get_dict(id, Result, MemoryId),
@@ -157,7 +159,8 @@ call_tool(Context, memory_remember, Arguments, ToolResult) :-
                     isError:false
                   }.
 call_tool(Context, memory_get, Arguments, ToolResult) :-
-    get_dict(id, Arguments, MemoryId),
+    !,
+    require_tool_argument(Arguments, id, MemoryId),
     memory_get(Context, MemoryId, Result),
     get_dict(source_text, Result, SourceText),
     ToolResult = _{ content:[_{type:"text", text:SourceText}],
@@ -166,6 +169,18 @@ call_tool(Context, memory_get, Arguments, ToolResult) :-
                   }.
 call_tool(_, Name, _, _) :-
     throw(error(existence_error(memory_tool, Name), _)).
+
+require_request_field(Dict, Key, Value) :-
+    (   get_dict(Key, Dict, Value)
+    ->  true
+    ;   throw(error(mcp_invalid_params(missing_field(Key)), _))
+    ).
+
+require_tool_argument(Arguments, Key, Value) :-
+    (   get_dict(Key, Arguments, Value)
+    ->  true
+    ;   throw(error(existence_error(tool_argument, Key), _))
+    ).
 
 tool_options(Arguments, Options) :-
     copy_known_option(scope, Arguments, _{}, O1),
@@ -221,6 +236,19 @@ rpc_exception_response(Request,
                            data:_{supported:[Modern, Legacy], requested:Requested}
                          }
                 }.
+rpc_exception_response(Request,
+                       error(mcp_invalid_params(Reason), _),
+                       Response) :-
+    !,
+    request_id(Request, Id),
+    term_string(Reason, Message),
+    Response = _{ jsonrpc:"2.0",
+                  id:Id,
+                  error:_{ code:(-32602),
+                           message:"Invalid params",
+                           data:_{reason:Message}
+                         }
+                }.
 rpc_exception_response(Request, Error, Response) :-
     request_id(Request, Id),
     term_string(Error, Message),
@@ -274,6 +302,7 @@ normalize_atom(Value, Atom) :-
     ->  Atom = Value
     ;   string(Value)
     ->  atom_string(Atom, Value)
+    ;   type_error(text, Value)
     ).
 
 normalize_string(Value, String) :-
@@ -281,4 +310,5 @@ normalize_string(Value, String) :-
     ->  String = Value
     ;   atom(Value)
     ->  atom_string(Value, String)
+    ;   type_error(text, Value)
     ).
