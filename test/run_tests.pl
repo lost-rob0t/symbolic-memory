@@ -1,4 +1,5 @@
 :- ['test_symbolic_memory.pl'].
+:- ['test_mcp_protocol.pl'].
 
 :- initialization(main, main).
 
