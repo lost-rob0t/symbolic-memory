@@ -11,6 +11,15 @@ project_context(Remote, Context) :-
                  project:_{remote:Remote}
                }.
 
+full_project_context(Remote, Context) :-
+    Context = _{ principal:"tester",
+                 capabilities:[memory_read, memory_write_session,
+                               memory_write_project, memory_write_global],
+                 source_class:user_explicit,
+                 session_id:"session-a",
+                 project:_{remote:Remote}
+               }.
+
 session_context(Context) :-
     Context = _{ principal:"tester",
                  capabilities:[memory_read, memory_write_session],
@@ -85,6 +94,23 @@ test(projection_roundtrip_and_compact_recall,
     assertion(\+ get_dict(source_text, Recalled, _)),
     get_dict(content, Recall, Content),
     sub_string(Content, _, _, _, "user_explicit").
+
+test(native_atom_and_mcp_string_arguments_share_one_representation,
+     [ setup(new_store(Path)),
+       cleanup(cleanup_store(Path))
+     ]) :-
+    session_context(Context),
+    Projection = _{ predicate:prefers,
+                    arguments:[user, prolog],
+                    statement:"User prefers Prolog."
+                  },
+    memory_remember(Context, "Canonicalize symbolic arguments.",
+                    _{projections:[Projection]}, _),
+    memory_recall(Context,
+                  _{predicate:"prefers", arguments:["user", "prolog"]},
+                  _{}, Recall),
+    get_dict(memories, Recall, [Recalled]),
+    get_dict(arguments, Recalled, ["user", "prolog"]).
 
 test(json_null_argument_is_symbolic_wildcard,
      [ setup(new_store(Path)),
@@ -188,6 +214,45 @@ test(lossy_projection_includes_exact_source,
     get_dict(source_text, Recalled, Source),
     get_dict(content, Recall, Content),
     sub_string(Content, _, _, _, "## Source context").
+
+test(explicit_source_expansion_overrides_exact_projection,
+     [ setup(new_store(Path)),
+       cleanup(cleanup_store(Path))
+     ]) :-
+    session_context(Context),
+    Source = "Exact source wording remains recoverable on demand.",
+    Projection = _{ predicate:"source_policy",
+                    arguments:["on_demand"],
+                    statement:"Source text is available on demand.",
+                    quality:"exact"
+                  },
+    memory_remember(Context, Source, _{projections:[Projection]}, _),
+    memory_recall(Context,
+                  _{predicate:"source_policy", arguments:["on_demand"]},
+                  _{include_source:true}, Recall),
+    get_dict(memories, Recall, [Recalled]),
+    get_dict(source_context_included, Recalled, true),
+    get_dict(source_text, Recalled, Source).
+
+test(recall_orders_session_before_project_before_global,
+     [ setup(new_store(Path)),
+       cleanup(cleanup_store(Path))
+     ]) :-
+    full_project_context("https://example.test/order.git", Context),
+    SessionProjection = _{predicate:"scope_rank", arguments:["session"], statement:"Session."},
+    ProjectProjection = _{predicate:"scope_rank", arguments:["project"], statement:"Project."},
+    GlobalProjection = _{predicate:"scope_rank", arguments:["global"], statement:"Global."},
+    memory_remember(Context, "global", _{scope:global, projections:[GlobalProjection]}, _),
+    memory_remember(Context, "project", _{scope:project, projections:[ProjectProjection]}, _),
+    memory_remember(Context, "session", _{scope:session, projections:[SessionProjection]}, _),
+    memory_recall(Context, _{predicate:"scope_rank"}, _{}, Recall),
+    get_dict(memories, Recall, [Session, Project, Global]),
+    get_dict(scope, Session, SessionScope),
+    get_dict(type, SessionScope, session),
+    get_dict(scope, Project, ProjectScope),
+    get_dict(type, ProjectScope, project),
+    get_dict(scope, Global, GlobalScope),
+    get_dict(type, GlobalScope, global).
 
 test(project_scope_isolation_applies_before_symbolic_match,
      [ setup(new_store(Path)),
