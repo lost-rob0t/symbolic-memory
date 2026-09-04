@@ -2,12 +2,105 @@
 
 Prolog-first durable memory for LLM/agent clients.
 
-The current implementation slice provides two native operations:
+The current implementation preserves exact natural-language source memory and can attach durable, structured symbolic projections to that source. Recall is symbolic-first: Prolog matches predicates and argument patterns, then the model receives concise Markdown-like statements instead of executable Prolog. Exact source prose is included only when a projection is marked lossy/context-dependent or the caller explicitly asks for it.
 
-- `memory_remember` — durably preserve exact source text in an authorized session/project/global namespace and return a stable opaque memory ID.
-- `memory_get` — retrieve one known memory by ID after re-checking read authority and namespace visibility.
+## Native operations
 
-The source text and symbolic interpretation are intentionally separate. This slice preserves the source losslessly and does **not** require an LLM or symbolic projection to succeed.
+- `memory_remember` — durably preserve exact source text in an authorized session/project/global namespace and optionally attach structured symbolic projections.
+- `memory_get` — retrieve one known memory by stable ID, including its projections, after re-checking read authority and namespace visibility.
+- `memory_recall` — query authorized projections by predicate and argument pattern. JSON `null` is a wildcard.
+
+The source text and symbolic interpretation remain separate. Projection failure or omission must never destroy or replace the original source.
+
+## Example
+
+Remember exact source text plus a compact symbolic projection:
+
+```json
+{
+  "memory": "The user prefers Prolog for constraint solving and wants important work verified with Prolog.",
+  "kind": "preference",
+  "projections": [
+    {
+      "predicate": "prefers",
+      "arguments": ["user", "prolog", "constraint_solving"],
+      "statement": "User prefers Prolog for constraint solving.",
+      "quality": "exact"
+    },
+    {
+      "predicate": "preferred_verifier",
+      "arguments": ["user", "prolog"],
+      "statement": "The user's preferred verifier is Prolog.",
+      "quality": "exact"
+    }
+  ]
+}
+```
+
+Internally those projections are data, not arbitrary executable clauses. A recall request can therefore perform exact symbolic matching without evaluating model-supplied Prolog:
+
+```json
+{
+  "predicate": "prefers",
+  "arguments": ["user", null, "constraint_solving"]
+}
+```
+
+Conceptual model-facing result:
+
+```text
+# Recalled memory
+
+- **preference · Current** — User prefers Prolog for constraint solving. [mem_<opaque-id>]
+```
+
+If a projection is marked `lossy` or `context_required`, recall adds the exact stored source under `## Source context` so a compact symbolic statement cannot silently erase an important qualification.
+
+## Projection shape
+
+A projection contains:
+
+- a stable projection ID;
+- its parent memory ID;
+- a predicate name;
+- scalar arguments;
+- a concise model-facing statement;
+- quality: `exact`, `lossy`, or `context_required`;
+- lifecycle state;
+- creation time.
+
+Predicate names and arguments are matched as structured data. They are not invoked as Prolog goals.
+
+## Scope and authority
+
+Memory scope and lifetime remain independent dimensions.
+
+Scopes:
+
+- `session`
+- `project`
+- `global`
+
+Retention classes currently map to short-term or long-term lifetime.
+
+Host-bound environment values establish caller identity and capability. Model-facing tool arguments do not grant themselves authority.
+
+Default MCP capabilities are:
+
+```text
+memory_read,memory_write_session,memory_write_project
+```
+
+Global write remains separate and is not granted by default.
+
+Useful host variables:
+
+- `SYMBOLIC_MEMORY_DB`
+- `SYMBOLIC_MEMORY_PRINCIPAL`
+- `SYMBOLIC_MEMORY_SESSION_ID`
+- `SYMBOLIC_MEMORY_PROJECT_REMOTE`
+- `SYMBOLIC_MEMORY_SOURCE_CLASS`
+- `SYMBOLIC_MEMORY_CAPABILITIES`
 
 ## Development
 
@@ -31,27 +124,6 @@ SYMBOLIC_MEMORY_PROJECT_REMOTE="https://github.com/lost-rob0t/symbolic-memory" \
 nix run
 ```
 
-Host-bound environment values establish caller context. The model-facing tool arguments do not grant themselves capabilities.
-
-Default capabilities are:
-
-```text
-memory_read,memory_write_session,memory_write_project
-```
-
-Override them explicitly with `SYMBOLIC_MEMORY_CAPABILITIES`. Global write is separate and is not granted by default.
-
-Useful host variables:
-
-- `SYMBOLIC_MEMORY_DB`
-- `SYMBOLIC_MEMORY_PRINCIPAL`
-- `SYMBOLIC_MEMORY_SESSION_ID`
-- `SYMBOLIC_MEMORY_PROJECT_REMOTE`
-- `SYMBOLIC_MEMORY_SOURCE_CLASS`
-- `SYMBOLIC_MEMORY_CAPABILITIES`
-
-## MCP protocol
-
 The stdio adapter supports current stateless MCP `2026-07-28` and retains legacy `2025-11-25` initialization compatibility.
 
 A modern client can discover the server without creating a session:
@@ -60,35 +132,27 @@ A modern client can discover the server without creating a session:
 {"jsonrpc":"2.0","id":"discover-1","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"example","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
 ```
 
-For modern requests, carry protocol/client metadata on each request. For example, remember:
+Modern `tools/call` requests carry the same protocol/client metadata in `params._meta`.
 
-```json
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_remember","arguments":{"memory":"Use Prolog as the authority for this project."},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"example","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
-```
+## Storage guarantees
 
-Then get the returned stable ID:
+The domain layer writes one Prolog snapshot through a backend-neutral storage adapter. A logical remember transaction contains project-namespace creation when required, the exact source record, the memory/version record, zero or more symbolic projection records, and its append-only audit event. The new snapshot is written to a temporary file in the same directory and renamed into place only after the complete term is flushed.
 
-```json
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_get","arguments":{"id":"mem_<opaque-id>"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"example","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
-```
+Snapshot format v2 adds projections. Existing v1 snapshots are migrated in memory on load with an empty projection set and are persisted as v2 on the next successful transaction.
 
-Unsupported modern protocol versions return JSON-RPC error `-32022` together with the requested and supported versions.
-
-## Storage guarantees in this slice
-
-The domain layer writes one Prolog snapshot through a backend-neutral storage adapter. A logical remember transaction contains project-namespace creation when required, the exact source record, the memory/version record, and its append-only audit event. The new snapshot is written to a temporary file in the same directory and renamed into place only after the complete term is flushed.
-
-This bootstrap is intentionally a **single-process** durability design. It does not claim database-grade multi-process concurrency. The public memory API does not depend on this backend, so SQLite/PostgreSQL/etc. can replace it later without changing the tool contract.
+This remains intentionally a **single-process** durability design. It does not claim database-grade multi-process concurrency. The public memory API does not depend on this backend, so SQLite/PostgreSQL/etc. can replace it later without changing the tool contract.
 
 ## Deliberately deferred
 
-This branch does not yet implement:
+This slice does **not** yet implement:
 
-- full-corpus `memory_search`;
-- symbolic-first `memory_recall`;
-- natural-language forgetting;
-- embeddings/vector retrieval;
+- automatic LLM-to-symbolic projection/extraction;
+- full-corpus natural-language `memory_search`;
+- natural-language `memory_recall` candidate generation;
 - contradiction/supersession reasoning;
-- generated-rule activation/self-optimization.
+- temporal valid-time/system-time state;
+- generated-rule activation/self-optimization;
+- natural-language forgetting and dependency repair;
+- embeddings/vector retrieval.
 
-Those build on the remember/get durability and authority contract rather than bypassing it.
+Those build on the durable source + projection + authority boundary rather than bypassing it.
