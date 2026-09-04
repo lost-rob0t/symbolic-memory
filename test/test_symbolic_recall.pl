@@ -77,7 +77,7 @@ test(projection_roundtrip_and_compact_recall,
     get_dict(source_context_included, Recalled, false),
     assertion(\+ get_dict(source_text, Recalled, _)).
 
-test(null_argument_is_symbolic_wildcard,
+test(json_null_argument_is_symbolic_wildcard,
      [ setup(new_store(Path)),
        cleanup(cleanup_store(Path))
      ]) :-
@@ -95,11 +95,23 @@ test(null_argument_is_symbolic_wildcard,
     memory_remember(Context, "Prolog preference", _{kind:preference, projections:[Prolog]}, _),
     memory_remember(Context, "Lisp preference", _{kind:preference, projections:[Lisp]}, _),
     memory_recall(Context,
-                  _{predicate:"prefers", arguments:["user", @(null)]},
+                  _{predicate:"prefers", arguments:["user", null]},
                   _{},
                   Recall),
     get_dict(memories, Recall, Memories),
     length(Memories, 2).
+
+test(null_is_reserved_for_recall_wildcards,
+     [ setup(new_store(Path)),
+       cleanup(cleanup_store(Path)),
+       throws(error(domain_error(symbolic_projection_argument, null), _))
+     ]) :-
+    session_context(Context),
+    Projection = _{ predicate:"bad_projection",
+                    arguments:[null],
+                    statement:"Null cannot be stored as a projection argument."
+                  },
+    memory_remember(Context, "bad", _{projections:[Projection]}, _).
 
 test(lossy_projection_includes_exact_source,
      [ setup(new_store(Path)),
@@ -201,7 +213,7 @@ test(mcp_memory_recall_returns_markdown_and_structured_content,
                  method:"tools/call",
                  params:_{ name:"memory_recall",
                            arguments:_{ predicate:"preferred_verifier",
-                                       arguments:["user", "prolog"]
+                                       arguments:["user", null]
                                      },
                            '_meta':Meta
                          }
