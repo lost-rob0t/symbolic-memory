@@ -53,7 +53,7 @@ mcp_dispatch(_, Request, Response) :-
                   id:Id,
                   result:_{ protocolVersion:Protocol,
                             capabilities:_{tools:_{}},
-                            serverInfo:_{name:"symbolic-memory", version:"0.1.0"},
+                            serverInfo:_{name:"symbolic-memory", version:"0.2.0"},
                             instructions:"Durable Prolog-first memory. Host configuration defines identity and authority."
                           }
                 }.
@@ -121,7 +121,7 @@ complete_result_for_request(Request, In, Out) :-
     ;   Out = In
     ).
 
-server_meta(_{'io.modelcontextprotocol/serverInfo':_{name:"symbolic-memory", version:"0.1.0"}}).
+server_meta(_{'io.modelcontextprotocol/serverInfo':_{name:"symbolic-memory", version:"0.2.0"}}).
 
 validate_request_protocol(Request) :-
     (   request_protocol(Request, Protocol)
@@ -167,6 +167,16 @@ call_tool(Context, memory_get, Arguments, ToolResult) :-
                     structuredContent:Result,
                     isError:false
                   }.
+call_tool(Context, memory_recall, Arguments, ToolResult) :-
+    !,
+    recall_query(Arguments, Query),
+    recall_options(Arguments, Options),
+    memory_recall(Context, Query, Options, Result),
+    get_dict(content, Result, Content),
+    ToolResult = _{ content:[_{type:"text", text:Content}],
+                    structuredContent:Result,
+                    isError:false
+                  }.
 call_tool(_, Name, _, _) :-
     throw(error(existence_error(memory_tool, Name), _)).
 
@@ -185,7 +195,17 @@ require_tool_argument(Arguments, Key, Value) :-
 tool_options(Arguments, Options) :-
     copy_known_option(scope, Arguments, _{}, O1),
     copy_known_option(retention, Arguments, O1, O2),
-    copy_known_option(kind, Arguments, O2, Options).
+    copy_known_option(kind, Arguments, O2, O3),
+    copy_known_option(projections, Arguments, O3, Options).
+
+recall_query(Arguments, Query) :-
+    require_tool_argument(Arguments, predicate, Predicate),
+    Base = _{predicate:Predicate},
+    copy_known_option(arguments, Arguments, Base, Query).
+
+recall_options(Arguments, Options) :-
+    copy_known_option(include_source, Arguments, _{}, O1),
+    copy_known_option(limit, Arguments, O1, Options).
 
 copy_known_option(Key, From, In, Out) :-
     (   get_dict(Key, From, Value)
@@ -195,22 +215,49 @@ copy_known_option(Key, From, In, Out) :-
 
 tool_definitions([
     _{ name:"memory_remember",
-       description:"Durably preserve exact source memory in the caller's authorized namespace.",
+       description:"Durably preserve exact source memory and optional structured symbolic projections in the caller's authorized namespace.",
        inputSchema:_{ type:"object",
                       properties:_{ memory:_{type:"string"},
                                     scope:_{type:"string", enum:["project", "session", "global"]},
                                     retention:_{type:"string", enum:["long_term", "short_term", "session", "durable"]},
-                                    kind:_{type:"string", enum:["auto", "text", "fact", "episode", "preference", "procedure"]}
+                                    kind:_{type:"string", enum:["auto", "text", "fact", "episode", "preference", "procedure"]},
+                                    projections:_{ type:"array",
+                                                   items:_{ type:"object",
+                                                           properties:_{ predicate:_{type:"string"},
+                                                                         arguments:_{ type:"array",
+                                                                                     items:_{type:["string", "number", "boolean"]}
+                                                                                   },
+                                                                         statement:_{type:"string"},
+                                                                         quality:_{type:"string", enum:["exact", "lossy", "context_required"]}
+                                                                       },
+                                                           required:["predicate", "arguments", "statement"],
+                                                           additionalProperties:false
+                                                         }
+                                                 }
                                   },
                       required:["memory"],
                       additionalProperties:false
                     }
      },
     _{ name:"memory_get",
-       description:"Fetch one known memory by stable ID when the caller is authorized to read its namespace.",
+       description:"Fetch one known memory by stable ID, including its symbolic projections, when the caller is authorized to read its namespace.",
        inputSchema:_{ type:"object",
                       properties:_{id:_{type:"string"}},
                       required:["id"],
+                      additionalProperties:false
+                    }
+     },
+    _{ name:"memory_recall",
+       description:"Recall authorized memory by exact symbolic predicate and argument pattern. JSON null is a wildcard. Exact projections stay compact; lossy/context-required projections include the lossless source text.",
+       inputSchema:_{ type:"object",
+                      properties:_{ predicate:_{type:"string"},
+                                    arguments:_{ type:"array",
+                                                items:_{type:["string", "number", "boolean", "null"]}
+                                              },
+                                    include_source:_{type:"boolean"},
+                                    limit:_{type:"integer", minimum:1}
+                                  },
+                      required:["predicate"],
                       additionalProperties:false
                     }
      }
