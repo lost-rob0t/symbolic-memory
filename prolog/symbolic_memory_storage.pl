@@ -91,7 +91,7 @@ storage_put_projection(ProjectionId, MemoryId, Predicate, Arguments,
                        Statement, Quality, Lifecycle, CreatedAt) :-
     must_be(atom, ProjectionId),
     must_be(atom, MemoryId),
-    must_be(atom, Predicate),
+    must_be(string, Predicate),
     must_be(list, Arguments),
     must_be(string, Statement),
     assertz(stored_projection(ProjectionId, MemoryId, Predicate, Arguments,
