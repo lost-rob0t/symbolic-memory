@@ -68,9 +68,9 @@ projection_quality(Raw, Quality) :-
     ;   Quality = exact
     ).
 
-valid_quality(exact).
-valid_quality(lossy).
-valid_quality(context_required).
+valid_quality(exact) :- !.
+valid_quality(lossy) :- !.
+valid_quality(context_required) :- !.
 valid_quality(Value) :-
     domain_error(projection_quality, Value).
 
