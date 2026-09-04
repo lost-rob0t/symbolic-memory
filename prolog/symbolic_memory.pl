@@ -77,9 +77,9 @@ memory_get_snapshot(Context, MemoryId, Result) :-
 
 memory_projection_json(MemoryId, Json) :-
     storage_projection(ProjectionId, MemoryId, Predicate, Arguments,
-                       Statement, Quality, Lifecycle, _),
+                       Statement, Quality, Lifecycle, CreatedAt),
     projection_json(ProjectionId, Predicate, Arguments, Statement,
-                    Quality, Lifecycle, Json).
+                    Quality, Lifecycle, CreatedAt, Json).
 
 recall_snapshot(Context, ProjectionQuery, Options, Limit, Result) :-
     findall(Rank-Candidate,
