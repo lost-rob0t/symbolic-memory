@@ -3,7 +3,7 @@
             normalize_projection_query/2,
             projection_query_match/3,
             projection_source_required/2,
-            projection_json/7
+            projection_json/8
           ]).
 
 :- use_module(library(error)).
@@ -39,13 +39,15 @@ projection_source_required(Quality, Options) :-
         truthy(Value)
     ).
 
-projection_json(ProjectionId, Predicate, Arguments, Statement, Quality, Lifecycle, Json) :-
+projection_json(ProjectionId, Predicate, Arguments, Statement, Quality,
+                Lifecycle, CreatedAt, Json) :-
     Json = _{ id:ProjectionId,
               predicate:Predicate,
               arguments:Arguments,
               statement:Statement,
               quality:Quality,
-              lifecycle:Lifecycle
+              lifecycle:Lifecycle,
+              created_at:CreatedAt
             }.
 
 normalize_projection_spec(Raw,
