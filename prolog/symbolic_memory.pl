@@ -23,9 +23,8 @@ memory_remember(Context, MemoryText, Options, Result) :-
     must_be(dict, Context),
     must_be(string, MemoryText),
     must_be(dict, Options),
-    normalize_projection_specs(Options, ProjectionSpecs),
     storage_transaction(
-        remember_tx(Context, MemoryText, Options, ProjectionSpecs, Result)
+        remember_tx(Context, MemoryText, Options, Result)
     ).
 
 memory_get(Context, MemoryId0, Result) :-
@@ -167,9 +166,11 @@ render_recall(Memories, Content) :-
 
 render_memory_line(Memory, Line) :-
     get_dict(kind, Memory, Kind),
+    get_dict(trust, Memory, Trust),
     get_dict(statement, Memory, Statement),
     get_dict(id, Memory, MemoryId),
-    format(string(Line), "- **~w · Current** — ~s [~w]", [Kind, Statement, MemoryId]).
+    format(string(Line), "- **~w · Current · ~w** — ~s [~w]",
+           [Kind, Trust, Statement, MemoryId]).
 
 render_source_section(Memories, Section) :-
     findall(Block,
@@ -206,13 +207,15 @@ require_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt) :-
                     context(reason, corrupt_memory_record)))
     ).
 
-remember_tx(Context, MemoryText, Options, ProjectionSpecs, Result) :-
+remember_tx(Context, MemoryText, Options, Result) :-
     resolve_write_namespace(Context, Options, Namespace),
     authorize_write(Context, Namespace, Capability),
     context_principal(Context, Principal),
     provenance_and_trust(Context, Options, Provenance, Trust),
     remember_lifetime(Options, Lifetime),
     remember_kind(Options, Kind),
+    prepare_projections(Trust, Options, ProjectionSpecs,
+                        ProjectionStatus, ProjectionError),
     new_id(src, SourceId),
     new_id(mem, MemoryId),
     new_id(evt, EventId),
@@ -224,16 +227,35 @@ remember_tx(Context, MemoryText, Options, ProjectionSpecs, Result) :-
     storage_put_audit(EventId, CreatedAt, Principal, memory_remember,
                       Namespace, MemoryId, Provenance, Capability, 0, 1),
     namespace_json(Namespace, NamespaceJson),
-    projection_status(ProjectionIds, ProjectionStatus),
-    Result = _{ status:stored,
-                id:MemoryId,
-                source_id:SourceId,
-                namespace:NamespaceJson,
-                durable:true,
-                version:1,
-                projection_status:ProjectionStatus,
-                projection_ids:ProjectionIds
-              }.
+    Base = _{ status:stored,
+              id:MemoryId,
+              source_id:SourceId,
+              namespace:NamespaceJson,
+              durable:true,
+              version:1,
+              projection_status:ProjectionStatus,
+              projection_ids:ProjectionIds
+            },
+    projection_error_result(ProjectionError, Base, Result).
+
+prepare_projections(Trust, Options, Specs, Status, ErrorText) :-
+    catch(normalize_projection_specs(Options, Requested), Error, true),
+    (   nonvar(Error)
+    ->  Specs = [],
+        Status = projection_error,
+        term_string(Error, ErrorText)
+    ;   projection_admission(Trust, Admission),
+        projection_plan(Admission, Requested, Specs, Status),
+        ErrorText = none
+    ).
+
+projection_plan(_, [], [], not_attempted) :- !.
+projection_plan(evidence_only, [_|_], [], blocked_untrusted) :- !.
+projection_plan(semantic, Requested, Requested, stored).
+
+projection_error_result(none, Result, Result) :- !.
+projection_error_result(ErrorText, Base, Result) :-
+    put_dict(projection_error, Base, ErrorText, Result).
 
 store_projections(_, [], _, []).
 store_projections(MemoryId,
@@ -244,9 +266,6 @@ store_projections(MemoryId,
     storage_put_projection(ProjectionId, MemoryId, Predicate, Arguments,
                            Statement, Quality, active, CreatedAt),
     store_projections(MemoryId, Rest, CreatedAt, Ids).
-
-projection_status([], not_attempted).
-projection_status([_|_], stored).
 
 remember_lifetime(Options, Lifetime) :-
     (   get_dict(retention, Options, Retention0)
