@@ -19,7 +19,7 @@ normalize_projection_specs(Options, Specs) :-
 normalize_projection_query(Query, projection_query(Predicate, Arguments)) :-
     must_be(dict, Query),
     (   get_dict(predicate, Query, Predicate0)
-    ->  normalize_atom(Predicate0, Predicate)
+    ->  normalize_string(Predicate0, Predicate)
     ;   throw(error(existence_error(recall_query_field, predicate), _))
     ),
     (   get_dict(arguments, Query, Arguments0)
@@ -55,7 +55,7 @@ normalize_projection_spec(Raw,
     require_field(Raw, predicate, Predicate0),
     require_field(Raw, arguments, Arguments0),
     require_field(Raw, statement, Statement0),
-    normalize_atom(Predicate0, Predicate),
+    normalize_string(Predicate0, Predicate),
     must_be(list, Arguments0),
     maplist(normalize_projection_argument, Arguments0, Arguments),
     normalize_string(Statement0, Statement),
