@@ -24,8 +24,7 @@ normalize_projection_query(Query, projection_query(Predicate, Arguments)) :-
     ),
     (   get_dict(arguments, Query, Arguments0)
     ->  must_be(list, Arguments0),
-        maplist(validate_query_argument, Arguments0),
-        Arguments = Arguments0
+        maplist(normalize_query_argument, Arguments0, Arguments)
     ;   Arguments = any
     ).
 
@@ -54,11 +53,11 @@ normalize_projection_spec(Raw,
                           projection_spec(Predicate, Arguments, Statement, Quality)) :-
     must_be(dict, Raw),
     require_field(Raw, predicate, Predicate0),
-    require_field(Raw, arguments, Arguments),
+    require_field(Raw, arguments, Arguments0),
     require_field(Raw, statement, Statement0),
     normalize_atom(Predicate0, Predicate),
-    must_be(list, Arguments),
-    maplist(validate_projection_argument, Arguments),
+    must_be(list, Arguments0),
+    maplist(normalize_projection_argument, Arguments0, Arguments),
     normalize_string(Statement0, Statement),
     projection_quality(Raw, Quality).
 
@@ -81,33 +80,37 @@ query_arguments_match(Pattern, Arguments) :-
     same_length(Pattern, Arguments),
     maplist(query_argument_match, Pattern, Arguments).
 
-query_argument_match(null, _) :- !.
-query_argument_match(@(null), _) :- !.
+query_argument_match(wildcard, _) :- !.
 query_argument_match(Expected, Actual) :-
     Expected == Actual.
 
-validate_query_argument(null) :- !.
-validate_query_argument(@(null)) :- !.
-validate_query_argument(Value) :-
-    validate_projection_argument(Value).
+normalize_query_argument(null, wildcard) :- !.
+normalize_query_argument(@(null), wildcard) :- !.
+normalize_query_argument(Value, Normalized) :-
+    normalize_projection_argument(Value, Normalized).
 
-validate_projection_argument(null) :-
+normalize_projection_argument(null, _) :-
     !,
     throw(error(domain_error(symbolic_projection_argument, null),
                 context(reason, null_reserved_for_recall_wildcard))).
-validate_projection_argument(@(null)) :-
+normalize_projection_argument(@(null), _) :-
     !,
     throw(error(domain_error(symbolic_projection_argument, @(null)),
                 context(reason, null_reserved_for_recall_wildcard))).
-validate_projection_argument(Value) :-
+normalize_projection_argument(true, true) :- !.
+normalize_projection_argument(false, false) :- !.
+normalize_projection_argument(@(true), true) :- !.
+normalize_projection_argument(@(false), false) :- !.
+normalize_projection_argument(Value, Value) :-
     (   string(Value)
-    ;   atom(Value)
     ;   number(Value)
-    ;   Value == @(true)
-    ;   Value == @(false)
     ),
     !.
-validate_projection_argument(Value) :-
+normalize_projection_argument(Value, String) :-
+    atom(Value),
+    !,
+    atom_string(Value, String).
+normalize_projection_argument(Value, _) :-
     throw(error(type_error(symbolic_projection_scalar, Value), _)).
 
 require_field(Dict, Key, Value) :-
