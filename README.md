@@ -10,11 +10,11 @@ The current implementation preserves exact natural-language source memory and ca
 - `memory_get` — retrieve one known memory by stable ID, including its projections, after re-checking read authority and namespace visibility.
 - `memory_recall` — query authorized projections by predicate and argument pattern. JSON `null` is a wildcard.
 
-The source text and symbolic interpretation remain separate. Projection failure or omission must never destroy or replace the original source.
+The source text and symbolic interpretation remain separate. **Projection failure or rejection never discards the source memory.**
 
 ## Example
 
-Remember exact source text plus a compact symbolic projection:
+Remember exact source text plus compact symbolic projections:
 
 ```json
 {
@@ -37,7 +37,7 @@ Remember exact source text plus a compact symbolic projection:
 }
 ```
 
-Internally those projections are data, not arbitrary executable clauses. A recall request can therefore perform exact symbolic matching without evaluating model-supplied Prolog:
+Internally those projections are data, not arbitrary executable clauses. Recall performs symbolic matching without evaluating model-supplied Prolog:
 
 ```json
 {
@@ -51,10 +51,27 @@ Conceptual model-facing result:
 ```text
 # Recalled memory
 
-- **preference · Current** — User prefers Prolog for constraint solving. [mem_<opaque-id>]
+- **preference · Current · user_explicit** — User prefers Prolog for constraint solving. [mem_<opaque-id>]
 ```
 
-If a projection is marked `lossy` or `context_required`, recall adds the exact stored source under `## Source context` so a compact symbolic statement cannot silently erase an important qualification.
+The trust label stays visible in the compiled recall packet. A symbolic statement therefore does not silently acquire user-level authority merely because it is compact.
+
+If a projection is marked `lossy` or `context_required`, recall adds the exact stored source under `## Source context`. Callers can also request exact source expansion explicitly with `include_source: true`.
+
+## Projection admission
+
+Projection is derived state. Source capture is authoritative and independent of whether projection succeeds.
+
+A remember result reports one of these projection states:
+
+- `not_attempted` — no projection was supplied;
+- `stored` — projection passed structural and trust admission and was persisted;
+- `blocked_untrusted` — source was retained as evidence, but semantic projection was blocked because trust is `external_untrusted` or `unknown`;
+- `projection_error` — malformed projection was rejected while the exact source memory still committed.
+
+This implements a narrow default: **capture broadly, promote semantic memory conservatively**.
+
+Projection arguments are canonicalized so native Prolog atoms and MCP JSON strings share one stored representation. JSON `null` is reserved for query wildcards and cannot be stored as a projection argument.
 
 ## Projection shape
 
@@ -63,13 +80,26 @@ A projection contains:
 - a stable projection ID;
 - its parent memory ID;
 - a predicate name;
-- scalar arguments;
+- canonical scalar arguments;
 - a concise model-facing statement;
 - quality: `exact`, `lossy`, or `context_required`;
 - lifecycle state;
 - creation time.
 
 Predicate names and arguments are matched as structured data. They are not invoked as Prolog goals.
+
+## Recall behavior
+
+`memory_recall` applies deterministic admissibility before returning candidates:
+
+1. caller must have `memory_read`;
+2. the parent memory and projection must be active;
+3. namespace visibility must hold;
+4. symbolic predicate/argument matching is applied;
+5. results rank session before project before global;
+6. source prose is attached only when required or explicitly requested.
+
+This slice does not claim full relevance ranking, temporal truth, contradiction handling, or natural-language retrieval yet.
 
 ## Scope and authority
 
@@ -136,7 +166,7 @@ Modern `tools/call` requests carry the same protocol/client metadata in `params.
 
 ## Storage guarantees
 
-The domain layer writes one Prolog snapshot through a backend-neutral storage adapter. A logical remember transaction contains project-namespace creation when required, the exact source record, the memory/version record, zero or more symbolic projection records, and its append-only audit event. The new snapshot is written to a temporary file in the same directory and renamed into place only after the complete term is flushed.
+The domain layer writes one Prolog snapshot through a backend-neutral storage adapter. A logical remember transaction contains project-namespace creation when required, the exact source record, the memory/version record, zero or more admitted symbolic projection records, and its append-only audit event. The new snapshot is written to a temporary file in the same directory and renamed into place only after the complete term is flushed.
 
 Snapshot format v2 adds projections. Existing v1 snapshots are migrated in memory on load with an empty projection set and are persisted as v2 on the next successful transaction.
 
@@ -146,7 +176,7 @@ This remains intentionally a **single-process** durability design. It does not c
 
 This slice does **not** yet implement:
 
-- automatic LLM-to-symbolic projection/extraction;
+- automatic prose → symbolic extraction;
 - full-corpus natural-language `memory_search`;
 - natural-language `memory_recall` candidate generation;
 - contradiction/supersession reasoning;
