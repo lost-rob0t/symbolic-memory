@@ -14,7 +14,6 @@
             storage_get_memory/8,
             storage_get_source/6,
             storage_projection/8,
-            storage_projections_for_memory/2,
             storage_audit_for_target/2,
             storage_counts/4
           ]).
@@ -117,15 +116,6 @@ storage_projection(ProjectionId, MemoryId, Predicate, Arguments,
     ensure_open,
     stored_projection(ProjectionId, MemoryId, Predicate, Arguments,
                       Statement, Quality, Lifecycle, CreatedAt).
-
-storage_projections_for_memory(MemoryId, Projections) :-
-    storage_snapshot(
-        findall(projection(ProjectionId, Predicate, Arguments, Statement,
-                           Quality, Lifecycle, CreatedAt),
-                stored_projection(ProjectionId, MemoryId, Predicate, Arguments,
-                                  Statement, Quality, Lifecycle, CreatedAt),
-                Projections)
-    ).
 
 storage_audit_for_target(TargetId, Events) :-
     storage_snapshot(
