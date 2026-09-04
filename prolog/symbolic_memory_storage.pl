@@ -9,9 +9,11 @@
             storage_put_project/4,
             storage_put_source/6,
             storage_put_memory/8,
+            storage_put_projection/8,
             storage_put_audit/10,
             storage_get_memory/8,
             storage_get_source/6,
+            storage_projection/8,
             storage_audit_for_target/2,
             storage_counts/4
           ]).
@@ -29,9 +31,10 @@
 :- dynamic stored_project/4.
 :- dynamic stored_source/6.
 :- dynamic stored_memory/8.
+:- dynamic stored_projection/8.
 :- dynamic stored_audit/10.
 
-storage_format_version(1).
+storage_format_version(2).
 
 storage_open(Config) :-
     must_be(dict, Config),
@@ -84,6 +87,16 @@ storage_put_memory(MemoryId, SourceId, Namespace, Lifetime, Kind, Version, Lifec
     must_be(atom, SourceId),
     assertz(stored_memory(MemoryId, SourceId, Namespace, Lifetime, Kind, Version, Lifecycle, CreatedAt)).
 
+storage_put_projection(ProjectionId, MemoryId, Predicate, Arguments,
+                       Statement, Quality, Lifecycle, CreatedAt) :-
+    must_be(atom, ProjectionId),
+    must_be(atom, MemoryId),
+    must_be(string, Predicate),
+    must_be(list, Arguments),
+    must_be(string, Statement),
+    assertz(stored_projection(ProjectionId, MemoryId, Predicate, Arguments,
+                              Statement, Quality, Lifecycle, CreatedAt)).
+
 storage_put_audit(EventId, At, Principal, Action, Namespace, TargetId,
                   Provenance, Capability, PreviousVersion, NewVersion) :-
     must_be(atom, EventId),
@@ -97,6 +110,12 @@ storage_get_memory(MemoryId, SourceId, Namespace, Lifetime, Kind, Version, Lifec
 storage_get_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt) :-
     ensure_open,
     stored_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt).
+
+storage_projection(ProjectionId, MemoryId, Predicate, Arguments,
+                   Statement, Quality, Lifecycle, CreatedAt) :-
+    ensure_open,
+    stored_projection(ProjectionId, MemoryId, Predicate, Arguments,
+                      Statement, Quality, Lifecycle, CreatedAt).
 
 storage_audit_for_target(TargetId, Events) :-
     storage_snapshot(
@@ -177,18 +196,26 @@ load_snapshot(Path) :-
     ).
 
 load_state_term(end_of_file) :- !.
-load_state_term(State) :-
-    (   State = snapshot(Version, _, _, _, _)
-    ->  storage_format_version(Expected),
-        (   Version == Expected
-        ->  restore_state(State)
-        ;   throw(error(domain_error(storage_format_version, Version),
-                        context(expected, Expected)))
-        )
-    ;   throw(error(domain_error(symbolic_memory_snapshot, State), _))
+load_state_term(snapshot(1, Projects, Sources, Memories, Audits)) :-
+    !,
+    restore_state(snapshot(2, Projects, Sources, Memories, [], Audits)).
+load_state_term(snapshot(Version, Projects, Sources, Memories, Projections, Audits)) :-
+    !,
+    storage_format_version(Expected),
+    (   Version == Expected
+    ->  restore_state(snapshot(Version, Projects, Sources, Memories, Projections, Audits))
+    ;   throw(error(domain_error(storage_format_version, Version),
+                    context(expected, Expected)))
     ).
+load_state_term(snapshot(Version, _, _, _, _)) :-
+    !,
+    storage_format_version(Expected),
+    throw(error(domain_error(storage_format_version, Version),
+                context(expected, Expected))).
+load_state_term(State) :-
+    throw(error(domain_error(symbolic_memory_snapshot, State), _)).
 
-snapshot_state(snapshot(Version, Projects, Sources, Memories, Audits)) :-
+snapshot_state(snapshot(Version, Projects, Sources, Memories, Projections, Audits)) :-
     storage_format_version(Version),
     findall(project(Id, Remote, Aliases, CreatedAt),
             stored_project(Id, Remote, Aliases, CreatedAt),
@@ -199,21 +226,28 @@ snapshot_state(snapshot(Version, Projects, Sources, Memories, Audits)) :-
     findall(memory(Id, SourceId, Namespace, Lifetime, Kind, RecordVersion, Lifecycle, CreatedAt),
             stored_memory(Id, SourceId, Namespace, Lifetime, Kind, RecordVersion, Lifecycle, CreatedAt),
             Memories),
+    findall(projection(Id, MemoryId, Predicate, Arguments, Statement,
+                       Quality, Lifecycle, CreatedAt),
+            stored_projection(Id, MemoryId, Predicate, Arguments, Statement,
+                              Quality, Lifecycle, CreatedAt),
+            Projections),
     findall(audit(EventId, At, Principal, Action, Namespace, TargetId,
                   Provenance, Capability, PreviousVersion, NewVersion),
             stored_audit(EventId, At, Principal, Action, Namespace, TargetId,
                          Provenance, Capability, PreviousVersion, NewVersion),
             Audits).
 
-restore_state(snapshot(Version, Projects, Sources, Memories, Audits)) :-
+restore_state(snapshot(Version, Projects, Sources, Memories, Projections, Audits)) :-
     storage_format_version(Version),
     retractall(stored_project(_, _, _, _)),
     retractall(stored_source(_, _, _, _, _, _)),
     retractall(stored_memory(_, _, _, _, _, _, _, _)),
+    retractall(stored_projection(_, _, _, _, _, _, _, _)),
     retractall(stored_audit(_, _, _, _, _, _, _, _, _, _)),
     maplist(assert_project, Projects),
     maplist(assert_source, Sources),
     maplist(assert_memory, Memories),
+    maplist(assert_projection, Projections),
     maplist(assert_audit, Audits).
 
 assert_project(project(Id, Remote, Aliases, CreatedAt)) :-
@@ -225,6 +259,11 @@ assert_source(source(Id, Text, Provenance, Principal, Trust, CreatedAt)) :-
 assert_memory(memory(Id, SourceId, Namespace, Lifetime, Kind, Version, Lifecycle, CreatedAt)) :-
     assertz(stored_memory(Id, SourceId, Namespace, Lifetime, Kind, Version, Lifecycle, CreatedAt)).
 
+assert_projection(projection(Id, MemoryId, Predicate, Arguments, Statement,
+                             Quality, Lifecycle, CreatedAt)) :-
+    assertz(stored_projection(Id, MemoryId, Predicate, Arguments, Statement,
+                              Quality, Lifecycle, CreatedAt)).
+
 assert_audit(audit(EventId, At, Principal, Action, Namespace, TargetId,
                    Provenance, Capability, PreviousVersion, NewVersion)) :-
     assertz(stored_audit(EventId, At, Principal, Action, Namespace, TargetId,
@@ -235,6 +274,7 @@ clear_runtime_state :-
     retractall(stored_project(_, _, _, _)),
     retractall(stored_source(_, _, _, _, _, _)),
     retractall(stored_memory(_, _, _, _, _, _, _, _)),
+    retractall(stored_projection(_, _, _, _, _, _, _, _)),
     retractall(stored_audit(_, _, _, _, _, _, _, _, _, _)).
 
 ensure_open :-
