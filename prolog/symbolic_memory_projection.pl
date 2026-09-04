@@ -79,14 +79,24 @@ query_arguments_match(Pattern, Arguments) :-
     same_length(Pattern, Arguments),
     maplist(query_argument_match, Pattern, Arguments).
 
+query_argument_match(null, _) :- !.
 query_argument_match(@(null), _) :- !.
 query_argument_match(Expected, Actual) :-
     Expected == Actual.
 
+validate_query_argument(null) :- !.
 validate_query_argument(@(null)) :- !.
 validate_query_argument(Value) :-
     validate_projection_argument(Value).
 
+validate_projection_argument(null) :-
+    !,
+    throw(error(domain_error(symbolic_projection_argument, null),
+                context(reason, null_reserved_for_recall_wildcard))).
+validate_projection_argument(@(null)) :-
+    !,
+    throw(error(domain_error(symbolic_projection_argument, @(null)),
+                context(reason, null_reserved_for_recall_wildcard))).
 validate_projection_argument(Value) :-
     (   string(Value)
     ;   atom(Value)
