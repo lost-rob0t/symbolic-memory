@@ -80,7 +80,7 @@ test(projection_roundtrip_and_compact_recall,
     get_dict(id, Stored, MemoryId),
     memory_get(Context, MemoryId, Memory),
     get_dict(projections, Memory, [StoredProjection]),
-    get_dict(predicate, StoredProjection, prefers),
+    get_dict(predicate, StoredProjection, "prefers"),
     memory_recall(Context,
                   _{ predicate:"prefers",
                      arguments:["user", "prolog", "constraint_solving"]
