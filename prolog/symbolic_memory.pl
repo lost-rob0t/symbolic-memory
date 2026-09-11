@@ -94,10 +94,10 @@ recall_snapshot(Context, ProjectionQuery, Options, Limit, Result) :-
 recall_candidate(Context, ProjectionQuery, Options, Rank, Candidate) :-
     storage_projection(ProjectionId, MemoryId, Predicate, Arguments,
                        Statement, Quality, active, ProjectionCreatedAt),
-    projection_query_match(ProjectionQuery, Predicate, Arguments),
     storage_get_memory(MemoryId, SourceId, Namespace, Lifetime, Kind,
                        Version, active, MemoryCreatedAt),
     context_can_see_namespace(Context, Namespace),
+    projection_query_match(ProjectionQuery, Predicate, Arguments),
     require_source(SourceId, SourceText, Provenance, Principal, Trust, SourceCreatedAt),
     namespace_json(Namespace, NamespaceJson),
     recall_scope_rank(Namespace, Rank),
