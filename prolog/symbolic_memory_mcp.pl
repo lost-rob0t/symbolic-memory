@@ -7,6 +7,7 @@
 :- use_module(library(http/json)).
 :- use_module(library(lists)).
 :- use_module(symbolic_memory).
+:- use_module(symbolic_memory_lifecycle_mcp).
 
 :- initialization(main, main).
 
@@ -22,7 +23,8 @@ main :-
     ).
 
 mcp_loop(Context) :-
-    json_read_dict(user_input, Request, [value_string_as(string)]),
+    json_read_dict(user_input, Request,
+                   [value_string_as(string), end_of_file(end_of_file)]),
     (   Request == end_of_file
     ->  true
     ;   mcp_handle(Context, Request, Response),
@@ -53,7 +55,7 @@ mcp_dispatch(_, Request, Response) :-
                   id:Id,
                   result:_{ protocolVersion:Protocol,
                             capabilities:_{tools:_{}},
-                            serverInfo:_{name:"symbolic-memory", version:"0.2.0"},
+                            serverInfo:_{name:"symbolic-memory", version:"0.3.0"},
                             instructions:"Durable Prolog-first memory. Host configuration defines identity and authority."
                           }
                 }.
@@ -121,7 +123,7 @@ complete_result_for_request(Request, In, Out) :-
     ;   Out = In
     ).
 
-server_meta(_{'io.modelcontextprotocol/serverInfo':_{name:"symbolic-memory", version:"0.2.0"}}).
+server_meta(_{'io.modelcontextprotocol/serverInfo':_{name:"symbolic-memory", version:"0.3.0"}}).
 
 validate_request_protocol(Request) :-
     (   request_protocol(Request, Protocol)
@@ -147,6 +149,10 @@ method_is(Request, Method) :-
     get_dict(method, Request, Method0),
     normalize_atom(Method0, Method).
 
+call_tool(Context, Name, Arguments, ToolResult) :-
+    lifecycle_tool(Name),
+    !,
+    lifecycle_call_tool(Context, Name, Arguments, ToolResult).
 call_tool(Context, memory_remember, Arguments, ToolResult) :-
     !,
     require_tool_argument(Arguments, memory, Memory),
@@ -213,9 +219,14 @@ copy_known_option(Key, From, In, Out) :-
     ;   Out = In
     ).
 
-tool_definitions([
+tool_definitions(Tools) :-
+    base_tool_definitions(Base),
+    lifecycle_tool_definitions(Lifecycle),
+    append(Base, Lifecycle, Tools).
+
+base_tool_definitions([
     _{ name:"memory_remember",
-       description:"Durably preserve exact source memory and optional structured symbolic projections in the caller's authorized namespace.",
+       description:"Durably preserve exact source memory, then independently admit optional structured symbolic projections in the caller's authorized namespace.",
        inputSchema:_{ type:"object",
                       properties:_{ memory:_{type:"string"},
                                     scope:_{type:"string", enum:["project", "session", "global"]},
@@ -240,7 +251,7 @@ tool_definitions([
                     }
      },
     _{ name:"memory_get",
-       description:"Fetch one known memory by stable ID, including its symbolic projections, when the caller is authorized to read its namespace.",
+       description:"Fetch one known memory by stable ID, including its current symbolic projections, when the caller is authorized to read its namespace.",
        inputSchema:_{ type:"object",
                       properties:_{id:_{type:"string"}},
                       required:["id"],
@@ -255,7 +266,7 @@ tool_definitions([
                                                 items:_{type:["string", "number", "boolean", "null"]}
                                               },
                                     include_source:_{type:"boolean"},
-                                    limit:_{type:"integer", minimum:1}
+                                    limit:_{type:"integer", minimum:1, maximum:200}
                                   },
                       required:["predicate"],
                       additionalProperties:false

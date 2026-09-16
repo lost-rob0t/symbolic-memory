@@ -33,9 +33,15 @@ provenance_and_trust(Context, Options, Provenance, Trust) :-
     ),
     Provenance = _{source_class:SourceClass, metadata:Metadata}.
 
-projection_admission(external_untrusted, evidence_only) :- !.
-projection_admission(unknown, evidence_only) :- !.
-projection_admission(_, semantic).
+% Closed host policy: misspelled/new trust classes cannot acquire admission.
+% Admission permits storage and recall only, never execution or promotion.
+projection_admission(Trust, Admission) :-
+    must_be(atom, Trust),
+    (   memberchk(Trust, [user_explicit, system_verified, project_verified,
+                         tool_verified, model_inferred])
+    ->  Admission = semantic
+    ;   Admission = evidence_only
+    ).
 
 write_capability(global, memory_write_global).
 write_capability(project(_), memory_write_project).

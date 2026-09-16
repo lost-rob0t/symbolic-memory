@@ -1,72 +1,57 @@
-# RAGE 002 implementation status
+# Symbolic Memory implementation status
 
-The durable `memory_remember` → source/memory/audit → `memory_get` slice remains intact and now has a second narrow vertical slice for structured symbolic projections and symbolic-first recall.
+## Implemented on this branch
 
-## Implemented
+The original RAGE 001 exact-source slice and RAGE 002 typed projection/recall
+slice are retained. MACHINE SPIRIT's next foundation slice adds:
 
-- `memory_remember` accepts optional structured projections while preserving the original source text losslessly.
-- Projection records have stable opaque IDs and are persisted separately from source text.
-- Projection predicates and arguments are treated as data; model-supplied projections are never executed as arbitrary Prolog goals.
-- Projection arguments are canonicalized so native Prolog atoms and MCP strings share one representation.
-- JSON `null` is reserved as a recall wildcard and is rejected as stored projection data.
-- Projection failure is non-destructive: malformed projections return `projection_error`, but the exact source memory still commits.
-- `external_untrusted` and `unknown` sources remain evidence-only when semantic projections are requested; source storage succeeds with `blocked_untrusted` and no semantic projection is persisted.
-- `memory_get` returns the projections attached to a memory.
-- `memory_recall` requires read authority before candidate generation, then performs exact predicate matching plus positional wildcard matching.
-- Recall applies namespace visibility before returning a symbolic match.
-- Session matches rank before project matches, which rank before global matches.
-- Exact projections return compact symbolic statements by default.
-- `lossy` and `context_required` projections automatically include the exact stored source text.
-- Callers may explicitly request source expansion for exact projections.
-- Model-facing recall includes the memory trust class instead of presenting every projection as equivalent authority.
-- MCP exposes `memory_recall` and projection input on `memory_remember`.
-- Snapshot format v2 persists projections and loads existing v1 snapshots with an empty projection set.
+- Independent source and projection commits, including honest failure receipts.
+- `memory_project/4`, `memory_projection_status/3`, `memory_projection_history/4`,
+  and `memory_projection_withdraw/4`, all exposed through thin MCP tools.
+- Immutable whole-set projection generations, request idempotency, expected-generation
+  checks, failed-attempt history, and withdrawal without negative evidence or deletion.
+- Historical projection contents, source SHA-256 binding, and separate source versus
+  interpretation trust/provenance. Unknown trust classes fail closed.
+- Current-generation-only `memory_get` and symbolic recall, retaining namespace
+  isolation, session → project → global precedence, and exact-source fallback.
+- Record-count bounds and explicit truncation/cursors. No total-byte or scale claim.
+- Snapshot v3 with v1/v2 migration; migrated compiler provenance stays unknown.
+- A fail-closed PlUnit loader and real subprocess stdio restart regression, both
+  wired into the Nix check. Existing tests remain included.
 
-## Verification authored
-
-Existing RAGE 001 tests remain in the suite. RAGE 002 adds PlUnit coverage for:
-
-- projection round-trip and stable projection IDs;
-- compact exact symbolic recall;
-- native atom ↔ MCP string argument canonicalization;
-- JSON `null` wildcard matching;
-- non-destructive malformed projection handling;
-- untrusted evidence-only admission;
-- read authority before recall candidate generation;
-- automatic source fallback for lossy projections;
-- explicit source expansion for exact projections;
-- session → project → global recall ordering;
-- project isolation before symbolic matching;
-- projection restart durability;
-- v1 snapshot migration;
-- MCP `memory_recall` readable + structured results.
+See [the lifecycle guide](docs/MACHINE-SPIRIT-LIFECYCLE.org) for the library example,
+MCP contract, idempotency semantics, bounds, and limitations.
 
 ## Verification state
 
-Tests have **not been executed in the ChatGPT implementation environment** because this environment does not provide `swipl` or `nix`.
+**Draft; executable Prolog verification has not run.** This implementation environment
+has neither `swipl` nor `nix`; package retrieval failed. Python syntax checks and
+lightweight static inspection do not establish Prolog correctness.
 
-Do not treat this branch or its PR as green until a local checkout runs:
+Required checks:
 
 ```sh
 nix flake check
 ```
 
-or at minimum:
+Or, with SWI-Prolog and Python 3 installed:
 
 ```sh
-nix develop --command swipl -q -s test/run_tests.pl
+swipl -q -s test/run_tests.pl
+python3 test/test_machine_spirit_stdio.py
 ```
 
-The PR should remain draft until that executable verification is green.
+Do not merge based only on authored tests or a missing/empty CI status.
 
-## Deliberately not in RAGE 002
+## Boundaries and remaining work
 
-- automatic prose → symbolic extraction;
-- natural-language corpus search/recall;
-- rule execution or generated-rule activation;
-- contradiction/supersession reasoning;
-- temporal truth intervals;
-- embeddings;
-- natural-language forgetting.
+This slice accepts **caller-supplied typed projections**, not natural-language semantic
+compilation. It does not complete #5, #6, #9, or the #11 Machine Spirit umbrella.
+Prolog-RLM remains the owner of general semantic IR, compiler/reasoner semantics,
+and learned-rule promotion decisions.
 
-Those remain later slices. RAGE 002 establishes the durable source ↔ symbolic projection boundary, trust-gated projection admission, and an inspectable Prolog retrieval path first.
+Still unimplemented: general full-IR storage, epistemic support/counterevidence and
+profile-relative acceptance, bitemporal reasoning, general semantic queries,
+dependency-complete attention projections, learning/promotion lineage, corpus backfill,
+federation/redaction, and north-star conformance. The snapshot backend is single-process,
+logically append-only, and lacks an fsync/power-loss guarantee or measured scale envelope.
