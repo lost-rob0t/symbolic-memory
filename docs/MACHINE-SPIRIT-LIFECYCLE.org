@@ -1,0 +1,211 @@
+#+title: MACHINE SPIRIT — Durable projection lifecycle
+#+date: 2026-09-15
+
+* Scope
+
+This is the caller-supplied typed-projection foundation for MACHINE SPIRIT,
+not the full general semantic world model. The library and MCP adapter share
+one lifecycle implementation. Prolog-RLM still owns semantic compilation,
+semantic IR and reasoning, epistemic acceptance, and learned-rule promotion.
+
+Related implementation issues: #11 (umbrella), #5 (independent projection
+lifecycle), #6 (general ledger), and #9 (MCP). This change advances those
+contracts but does not complete or close them.
+
+No prose compiler or provider is invoked here. =model_calls: 0= describes
+this server operation, not the historical cost of producing caller-supplied
+projections. =compiler_fingerprint= is caller-reported provenance, not an
+attestation that a compiler ran or that a projection is correct.
+
+* Source first, interpretation second
+
+#+begin_example
+memory_remember(text)                 -> commit exact source + memory + audit
+memory_project(id, typed projections) -> independently commit generation
+memory_recall(predicate, arguments)   -> current, visible projection records
+memory_projection_history(id)        -> immutable attempts and prior contents
+#+end_example
+
+The convenience =projections= option on =memory_remember= follows the same
+two-commit path. A projection validation, admission, or storage failure cannot
+roll back the already committed source. If its failure receipt cannot be
+persisted, =projection_attempt_durable: false= says so explicitly.
+
+The convenience result keeps =stored=, =not_attempted=, =blocked_untrusted=,
+and =projection_error= projection statuses for compatibility. Source capture
+requires write permission. Projecting an existing source requires *both*
+read permission and its namespace's write permission. A write-only caller
+can remember source, but cannot subsequently inspect or project it.
+
+* Native library example
+
+#+begin_src prolog
+:- use_module('prolog/symbolic_memory').
+
+example(Result) :-
+    Context = _{principal:demo, session_id:"machine-spirit-demo",
+                source_class:user_explicit,
+                capabilities:[memory_read, memory_write_session]},
+    setup_call_cleanup(
+        memory_open(_{path:"demo-memory.db"}),
+        ( memory_remember(Context, "I prefer Prolog for verification.", _{}, Stored),
+          put_dict(source_class, Context, model_inferred, Interpreter),
+          memory_project(Interpreter, Stored.id,
+            _{request_id:"demo-interpretation-1", expected_generation:0,
+              projections:[_{predicate:"prefers", arguments:["user", "prolog"],
+                             statement:"User prefers Prolog for verification.",
+                             quality:"context_required"}]}, _Generation),
+          memory_recall(Context, _{predicate:"prefers", arguments:["user", null]},
+                        _{limit:10}, Result)
+        ),
+        memory_close).
+#+end_src
+
+The interpretation label remains =model_inferred= even though the source
+label is =user_explicit=. The deliberately narrower predicate omits the
+verification context, so =context_required= retains the exact source in recall.
+
+* MCP tools
+
+The existing =memory_remember=, =memory_get= and =memory_recall= remain.
+Four tools are added:
+
+| Tool                       | Required arguments | Purpose                         |
+|----------------------------+--------------------+---------------------------------|
+| memory_project             | id, projections    | Admit a new projection set      |
+| memory_projection_status   | id                 | Latest attempt and current set  |
+| memory_projection_history  | id                 | Page attempts and old contents  |
+| memory_projection_withdraw | id, reason         | Withdraw current set, not source|
+
+Example =tools/call= parameters after initializing the MCP client:
+
+#+begin_src json
+{
+  "name": "memory_project",
+  "arguments": {
+    "id": "mem_<returned-id>",
+    "request_id": "interpretation-1",
+    "expected_generation": 0,
+    "compiler_fingerprint": "caller-supplied-v1",
+    "projections": [
+      {
+        "predicate": "prefers",
+        "arguments": ["user", "prolog", "verification"],
+        "statement": "User prefers Prolog for verification.",
+        "quality": "exact"
+      }
+    ]
+  }
+}
+#+end_src
+
+Lifecycle tool arguments cannot supply =trust=, =capabilities=, a principal,
+or a namespace override. Those values come from trusted host configuration.
+Unknown projection fields are rejected rather than silently discarding an
+unsupported rule, modality, or other semantic structure.
+
+An admission or validation failure of =memory_project= sets MCP =isError=
+to true *and* returns a structured attempt receipt when it was persisted.
+Inspecting a failed attempt with =memory_projection_status= is a successful
+read; the operation's =isError= remains false.
+
+* Generations, retries, and withdrawal
+
+Each persisted attempt advances =latest_generation=: =ready=, =failed=,
+=blocked_untrusted=, or =withdrawn=. Failed and blocked attempts do not
+replace the last usable set. =current_generation= and =current_status= are
+reported separately. Before any lifecycle event, absent or migrated legacy
+projections occupy generation 0.
+
+A ready generation replaces the *whole* current projection set for that
+memory. Old rows remain immutable and available through history. Records
+from other memories are unaffected; this is not global conflict resolution.
+
+=expected_generation= compares against the latest *attempt*, not just the
+latest successful generation. Two concurrent writers using the same expected
+generation cannot both publish. Omitting it permits serialized last-published
+set replacement; it does not provide stale-writer protection.
+
+A successful request is keyed per memory. The default key hashes the source,
+normalized projection data, schema identity, and compiler fingerprint.
+Explicit keys are supported. Repeating an identical successful request
+returns its original receipt without appending an event. Reusing the key
+with a changed payload throws an idempotency conflict. Failed/blocked
+attempts are not successful idempotency entries and remain retryable.
+
+A retry of an old successful request never reinstates that generation after
+replacement or withdrawal. Its receipt says =already_present= and
+=is_current: false=. To intentionally publish the same interpretation again,
+use a new request ID and the current expected generation.
+
+Withdrawal records the reason, old generation, and old projection IDs. It
+adds no negative assertion, deletes no source, and grants no authority.
+Repeated withdrawal while no projection is current is a no-op. A source
+correction requires a new exact-source memory; reprojection does not rewrite
+source text.
+
+* Bounds and provenance
+
+A new generation contains 1–128 typed projections. Predicate names are
+1–128 characters, statements 1–8192, arity at most 32, and string arguments
+1–2048 characters. Scalar arguments are strings, integers, finite floats,
+or booleans. Null is a query wildcard only. Compound Prolog arguments and
+rational/non-finite numbers are rejected. Inert predicate names such as
+=assertz= never invoke a host predicate.
+
+Recall and history accept =limit= from 1–200, default 20. Recall returns
+=truncated=; history uses =after_generation= and returns =has_more= and
+=next_after_generation=. History includes the original projection contents
+for ready events. Legacy generation-0 records predate lifecycle history;
+new receipts do not invent their missing compiler provenance.
+
+These are *record-count* bounds, not byte, CPU, or total-store bounds.
+Source expansion can return long exact text. The bootstrap backend remains
+an in-memory snapshot store and is not a million-record-scale engine.
+
+Every new ready event binds the source ID and SHA-256 of exact UTF-8 text,
+projection IDs, compiler/request fingerprints, source trust, independent
+interpretation trust/provenance, principal, and timestamp. Provenance is at
+whole-source granularity; exact semantic spans and upstream IR validation
+are not implemented here.
+
+* Persistence and verification
+
+Snapshot v3 adds immutable lifecycle events. v1 and v2 snapshots migrate on
+load; a subsequent successful transaction writes v3. Failed loads clear
+runtime state. Trailing terms, invalid event states, duplicate event IDs,
+noncontiguous generations, and foreign projection references are rejected.
+
+All public mutations serialize under the existing single-process mutex.
+Writes use a complete temporary snapshot and same-directory rename. This is
+*logical append-only history*, not an append-only disk log. There is no
+multi-process writer coordination, fsync/power-loss guarantee, federation,
+or claim of independent historical frontier replay across an entire store.
+
+Run both executable suites:
+
+#+begin_src sh
+nix flake check
+# Or in a shell with SWI-Prolog and Python 3:
+swipl -q -s test/run_tests.pl
+python3 test/test_machine_spirit_stdio.py
+#+end_src
+
+The PlUnit runner fails on consult-time errors as well as test failures.
+The stdio regression starts the actual server four times against one store,
+checking exact-source restart, projection, retry, withdrawal, and absence of
+resurrection. It fails, rather than silently skipping, if SWI-Prolog is absent.
+
+At authoring time these executable suites were *not run*: the implementation
+environment lacked SWI-Prolog and Nix, and package downloads failed. Python
+syntax and lightweight static checks are not substitutes for those suites.
+The pull request remains draft pending executable verification.
+
+* Remaining MACHINE SPIRIT work
+
+The next semantic slice must use Prolog-RLM's real compiler/IR contract,
+not reinterpret these typed predicates as a second general knowledge algebra.
+General semantic records, support/counterevidence, profile-relative warrant,
+bitemporal reasoning, bounded dependency-complete projections, learning and
+promotion history, federation, redaction, and full north-star conformance
+remain outside this slice. No Machine Spirit completion claim is made.

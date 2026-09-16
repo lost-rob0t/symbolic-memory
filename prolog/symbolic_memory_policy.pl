@@ -2,7 +2,8 @@
           [ authorize_write/3,
             authorize_read/2,
             context_principal/2,
-            provenance_and_trust/4
+            provenance_and_trust/4,
+            projection_admission/2
           ]).
 
 :- use_module(library(error)).
@@ -31,6 +32,16 @@ provenance_and_trust(Context, Options, Provenance, Trust) :-
     ;   Metadata = _{}
     ),
     Provenance = _{source_class:SourceClass, metadata:Metadata}.
+
+% Closed host policy: misspelled/new trust classes cannot acquire admission.
+% Admission permits storage and recall only, never execution or promotion.
+projection_admission(Trust, Admission) :-
+    must_be(atom, Trust),
+    (   memberchk(Trust, [user_explicit, system_verified, project_verified,
+                         tool_verified, model_inferred])
+    ->  Admission = semantic
+    ;   Admission = evidence_only
+    ).
 
 write_capability(global, memory_write_global).
 write_capability(project(_), memory_write_project).

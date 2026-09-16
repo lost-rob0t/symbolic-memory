@@ -34,12 +34,13 @@
           pkgs = import nixpkgs { inherit system; };
         in {
           tests = pkgs.runCommand "symbolic-memory-tests" {
-            nativeBuildInputs = [ pkgs.swiProlog ];
+            nativeBuildInputs = [ pkgs.swiProlog pkgs.python3 ];
           } ''
             cp -r ${./.} source
             chmod -R u+w source
             cd source
             swipl -q -s test/run_tests.pl
+            python3 test/test_machine_spirit_stdio.py
             touch "$out"
           '';
         });
@@ -49,7 +50,7 @@
           pkgs = import nixpkgs { inherit system; };
         in {
           default = pkgs.mkShell {
-            packages = [ pkgs.swiProlog ];
+            packages = [ pkgs.swiProlog pkgs.python3 ];
           };
         });
     };
