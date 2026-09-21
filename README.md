@@ -2,12 +2,14 @@
 
 Prolog-first durable memory for LLM/agent clients.
 
-The current implementation slice provides two native operations:
+The current implementation slice provides four native operations:
 
 - `memory_remember` — durably preserve exact source text in an authorized session/project/global namespace and return a stable opaque memory ID.
 - `memory_get` — retrieve one known memory by ID after re-checking read authority and namespace visibility.
+- `memory_preference_observe` — persist one bounded structured preference observation using the same namespace/capability rules.
+- `memory_preference_patterns` — deterministically aggregate visible preference observations into ranked item patterns with positive/negative evidence and confidence ratios.
 
-The source text and symbolic interpretation are intentionally separate. This slice preserves the source losslessly and does **not** require an LLM or symbolic projection to succeed.
+The source text and symbolic interpretation are intentionally separate. This slice preserves the source losslessly and does **not** require an LLM or symbolic projection to succeed. Preference learning is likewise deterministic: observations are stored as canonical JSON payloads under `kind=preference`, and Prolog derives patterns on read without granting any action authority.
 
 ## Development
 
