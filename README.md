@@ -38,10 +38,10 @@ Host-bound environment values establish caller context. The model-facing tool ar
 Default capabilities are:
 
 ```text
-memory_read,memory_write_session,memory_write_project
+memory_read,memory_write_user,memory_write_session,memory_write_project
 ```
 
-Override them explicitly with `SYMBOLIC_MEMORY_CAPABILITIES`. Global write is separate and is not granted by default.
+Override them explicitly with `SYMBOLIC_MEMORY_CAPABILITIES`. User-scoped write is principal-isolated and granted by default; global write remains separate and is not granted by default.
 
 Useful host variables:
 
