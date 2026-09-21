@@ -105,6 +105,37 @@ test(negative_feedback_reduces_preference_ratio,
     get_dict(negative_count, Pattern, 1),
     get_dict(preference_ratio, Pattern, 0.5).
 
+test(user_preferences_are_principal_scoped,
+     [ setup(new_preference_store(Path)),
+       cleanup(cleanup_preference_store(Path))
+     ]) :-
+    Alice = _{principal:"alice",
+              capabilities:[memory_read, memory_write_user],
+              source_class:user_explicit,
+              session_id:"alice-session"},
+    Bob = _{principal:"bob",
+            capabilities:[memory_read, memory_write_user],
+            source_class:user_explicit,
+            session_id:"bob-session"},
+    memory_preference_observe(
+        Alice,
+        _{domain:"food", item:"ramen", signal:"liked"},
+        _{scope:user},
+        Stored),
+    get_dict(namespace, Stored, AliceNamespace),
+    get_dict(type, AliceNamespace, user),
+    memory_preference_patterns(
+        Alice,
+        _{domain:"food", min_observations:1},
+        AlicePatterns),
+    get_dict(matched_observations, AlicePatterns, 1),
+    memory_preference_patterns(
+        Bob,
+        _{domain:"food", min_observations:1},
+        BobPatterns),
+    get_dict(matched_observations, BobPatterns, 0),
+    get_dict(patterns, BobPatterns, []).
+
 test(preference_observe_preserves_authority_boundary,
      [ setup(new_preference_store(Path)),
        cleanup(cleanup_preference_store(Path)),
