@@ -7,6 +7,7 @@
 
 :- use_module(library(error)).
 :- use_module(symbolic_memory_storage).
+:- use_module(symbolic_memory_policy, [context_principal/2]).
 :- use_module(symbolic_memory_util).
 
 resolve_write_namespace(Context, Options, Namespace) :-
@@ -16,6 +17,9 @@ resolve_write_namespace(Context, Options, Namespace) :-
     resolve_scope(Scope, Context, Namespace).
 
 context_can_see_namespace(_, global).
+context_can_see_namespace(Context, user(Principal)) :-
+    context_principal(Context, Current),
+    Current == Principal.
 context_can_see_namespace(Context, session(SessionId)) :-
     context_session_id(Context, Current),
     Current == SessionId.
@@ -24,6 +28,7 @@ context_can_see_namespace(Context, project(ProjectId)) :-
     CurrentProject == ProjectId.
 
 namespace_json(global, _{type:global}).
+namespace_json(user(Principal), _{type:user, id:Principal}).
 namespace_json(session(SessionId), _{type:session, id:SessionId}).
 namespace_json(project(ProjectId), _{type:project, id:ProjectId}).
 
@@ -34,6 +39,9 @@ requested_scope(Options, Scope) :-
     ).
 
 resolve_scope(global, _, global) :- !.
+resolve_scope(user, Context, user(Principal)) :-
+    !,
+    context_principal(Context, Principal).
 resolve_scope(session, Context, session(SessionId)) :-
     !,
     context_session_id(Context, SessionId).
