@@ -167,6 +167,27 @@ call_tool(Context, memory_get, Arguments, ToolResult) :-
                     structuredContent:Result,
                     isError:false
                   }.
+call_tool(Context, memory_preference_observe, Arguments, ToolResult) :-
+    !,
+    require_tool_argument(Arguments, observation, Observation),
+    tool_options(Arguments, Options),
+    memory_preference_observe(Context, Observation, Options, Result),
+    get_dict(id, Result, MemoryId),
+    format(string(Text), "Observed preference ~w", [MemoryId]),
+    ToolResult = _{ content:[_{type:"text", text:Text}],
+                    structuredContent:Result,
+                    isError:false
+                  }.
+call_tool(Context, memory_preference_patterns, Arguments, ToolResult) :-
+    !,
+    ( get_dict(query, Arguments, Query) -> true ; Query = _{} ),
+    memory_preference_patterns(Context, Query, Result),
+    get_dict(matched_observations, Result, Count),
+    format(string(Text), "Derived preference patterns from ~w observations", [Count]),
+    ToolResult = _{ content:[_{type:"text", text:Text}],
+                    structuredContent:Result,
+                    isError:false
+                  }.
 call_tool(_, Name, _, _) :-
     throw(error(existence_error(memory_tool, Name), _)).
 
@@ -211,6 +232,49 @@ tool_definitions([
        inputSchema:_{ type:"object",
                       properties:_{id:_{type:"string"}},
                       required:["id"],
+                      additionalProperties:false
+                    }
+     },
+    _{ name:"memory_preference_observe",
+       description:"Store one bounded structured preference observation without granting action authority.",
+       inputSchema:_{ type:"object",
+                      properties:_{
+                        observation:_{
+                          type:"object",
+                          properties:_{
+                            domain:_{type:"string"},
+                            item:_{type:"string"},
+                            signal:_{type:"string", enum:["selected","ordered","purchased","liked","repeated","chosen","disliked","rejected","avoided"]},
+                            provider:_{type:"string"},
+                            merchant:_{type:"string"},
+                            context:_{type:"object"}
+                          },
+                          required:["domain","item"],
+                          additionalProperties:false
+                        },
+                        scope:_{type:"string", enum:["project","session","global"]},
+                        retention:_{type:"string", enum:["long_term","short_term","session","durable"]}
+                      },
+                      required:["observation"],
+                      additionalProperties:false
+                    }
+     },
+    _{ name:"memory_preference_patterns",
+       description:"Derive deterministic ranked item preferences from visible structured observations.",
+       inputSchema:_{ type:"object",
+                      properties:_{
+                        query:_{
+                          type:"object",
+                          properties:_{
+                            domain:_{type:"string"},
+                            provider:_{type:"string"},
+                            context:_{type:"object"},
+                            min_observations:_{type:"integer", minimum:1, maximum:1000},
+                            limit:_{type:"integer", minimum:1, maximum:100}
+                          },
+                          additionalProperties:false
+                        }
+                      },
                       additionalProperties:false
                     }
      }
