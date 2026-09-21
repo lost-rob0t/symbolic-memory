@@ -33,6 +33,7 @@ provenance_and_trust(Context, Options, Provenance, Trust) :-
     Provenance = _{source_class:SourceClass, metadata:Metadata}.
 
 write_capability(global, memory_write_global).
+write_capability(user(_), memory_write_user).
 write_capability(project(_), memory_write_project).
 write_capability(session(_), memory_write_session).
 
