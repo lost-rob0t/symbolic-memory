@@ -2,12 +2,15 @@
           [ memory_open/1,
             memory_close/0,
             memory_remember/4,
-            memory_get/3
+            memory_get/3,
+            memory_preference_observe/4,
+            memory_preference_patterns/3
           ]).
 
 :- use_module(library(error)).
 :- use_module(symbolic_memory_namespace).
 :- use_module(symbolic_memory_policy).
+:- use_module(symbolic_memory_preferences).
 :- use_module(symbolic_memory_storage).
 :- use_module(symbolic_memory_util).
 
@@ -31,6 +34,12 @@ memory_get(Context, MemoryId0, Result) :-
     storage_snapshot(
         memory_get_snapshot(Context, MemoryId, Result)
     ).
+
+memory_preference_observe(Context, Observation, Options, Result) :-
+    preference_observe(Context, Observation, Options, Result).
+
+memory_preference_patterns(Context, Query, Result) :-
+    preference_patterns(Context, Query, Result).
 
 memory_get_snapshot(Context, MemoryId, Result) :-
     require_memory(MemoryId, SourceId, Namespace, Lifetime, Kind,
