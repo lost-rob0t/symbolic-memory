@@ -6,6 +6,7 @@
 :- use_module(library(error)).
 :- use_module(library(http/json)).
 :- use_module(library(lists)).
+:- use_module(library(pairs)).
 :- use_module(symbolic_memory_namespace).
 :- use_module(symbolic_memory_policy).
 :- use_module(symbolic_memory_storage).
@@ -88,9 +89,8 @@ normalize_query(Input, Query) :-
              }.
 
 visible_matching_observation(Context, Query, Records, Observation) :-
-    member(preference(_MemoryId, SourceId, Namespace, _CreatedAt), Records),
+    member(preference(_MemoryId, _SourceId, Namespace, _CreatedAt, SourceText), Records),
     context_can_see_namespace(Context, Namespace),
-    storage_get_source(SourceId, SourceText, _Provenance, _Principal, _Trust, _SourceCreatedAt),
     catch(preference_from_json(SourceText, Observation), _, fail),
     observation_matches(Query, Observation).
 
