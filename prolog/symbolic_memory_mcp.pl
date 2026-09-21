@@ -252,7 +252,7 @@ tool_definitions([
                           required:["domain","item"],
                           additionalProperties:false
                         },
-                        scope:_{type:"string", enum:["project","session","global"]},
+                        scope:_{type:"string", enum:["user","project","session","global"]},
                         retention:_{type:"string", enum:["long_term","short_term","session","durable"]}
                       },
                       required:["observation"],
@@ -339,7 +339,7 @@ host_config(Context, DatabasePath) :-
     env_or_default('SYMBOLIC_MEMORY_SESSION_ID', "mcp-local", SessionId),
     env_or_default('SYMBOLIC_MEMORY_SOURCE_CLASS', "model_inferred", SourceClass),
     env_or_default('SYMBOLIC_MEMORY_CAPABILITIES',
-                   "memory_read,memory_write_session,memory_write_project",
+                   "memory_read,memory_write_user,memory_write_session,memory_write_project",
                    CapabilitiesText),
     split_string(CapabilitiesText, ",", " \t", CapabilityStrings),
     maplist(atom_string, Capabilities, CapabilityStrings),
