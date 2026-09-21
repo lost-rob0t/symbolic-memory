@@ -67,14 +67,8 @@ normalize_observation(Input, Observation) :-
                    }.
 
 normalize_query(Input, Query) :-
-    (   get_dict(domain, Input, Domain0)
-    ->  bounded_text(Domain0, domain, 64, Domain)
-    ;   Domain = ""
-    ),
-    (   get_dict(provider, Input, Provider0)
-    ->  bounded_text(Provider0, provider, 128, Provider)
-    ;   Provider = ""
-    ),
+    optional_filter_text(Input, domain, 64, Domain),
+    optional_filter_text(Input, provider, 128, Provider),
     (   get_dict(context, Input, Context0)
     ->  normalize_context(Context0, Context)
     ;   Context = _{}
@@ -196,7 +190,8 @@ preference_json(Observation, Text) :-
                    json_write_dict(current_output, Observation, [width(0)])).
 
 preference_from_json(Text, Observation) :-
-    atom_json_dict(Text, Raw, [value_string_as(string)]),
+    atom_string(Atom, Text),
+    atom_json_dict(Atom, Raw, [value_string_as(string)]),
     get_dict(schema, Raw, "preference-observation/1"),
     normalize_observation(Raw, Observation).
 
@@ -207,7 +202,15 @@ required_bounded_text(Dict, Key, Limit, Text) :-
     ).
 
 optional_bounded_text(Dict, Key, Limit, Text) :-
-    (   get_dict(Key, Dict, Value)
+    (   get_dict(Key, Dict, Value),
+        Value \== ""
+    ->  bounded_text(Value, Key, Limit, Text)
+    ;   Text = ""
+    ).
+
+optional_filter_text(Dict, Key, Limit, Text) :-
+    (   get_dict(Key, Dict, Value),
+        Value \== ""
     ->  bounded_text(Value, Key, Limit, Text)
     ;   Text = ""
     ).
