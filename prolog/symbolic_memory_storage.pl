@@ -101,9 +101,12 @@ storage_get_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt) :-
 
 storage_preference_records(Records) :-
     storage_snapshot(
-        findall(preference(MemoryId, SourceId, Namespace, CreatedAt),
-                stored_memory(MemoryId, SourceId, Namespace, _Lifetime,
-                              preference, _Version, active, CreatedAt),
+        findall(preference(MemoryId, SourceId, Namespace, CreatedAt, SourceText),
+                ( stored_memory(MemoryId, SourceId, Namespace, _Lifetime,
+                                preference, _Version, active, CreatedAt),
+                  stored_source(SourceId, SourceText, _Provenance, _Principal,
+                                _Trust, _SourceCreatedAt)
+                ),
                 Records)
     ).
 
