@@ -12,6 +12,7 @@
             storage_put_audit/10,
             storage_get_memory/8,
             storage_get_source/6,
+            storage_preference_records/1,
             storage_audit_for_target/2,
             storage_counts/4
           ]).
@@ -97,6 +98,14 @@ storage_get_memory(MemoryId, SourceId, Namespace, Lifetime, Kind, Version, Lifec
 storage_get_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt) :-
     ensure_open,
     stored_source(SourceId, Text, Provenance, Principal, Trust, CreatedAt).
+
+storage_preference_records(Records) :-
+    storage_snapshot(
+        findall(preference(MemoryId, SourceId, Namespace, CreatedAt),
+                stored_memory(MemoryId, SourceId, Namespace, _Lifetime,
+                              preference, _Version, active, CreatedAt),
+                Records)
+    ).
 
 storage_audit_for_target(TargetId, Events) :-
     storage_snapshot(
