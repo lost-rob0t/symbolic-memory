@@ -1,11 +1,12 @@
 # RAGE 001 implementation status
 
-The `memory_remember` → durable source/memory/audit → `memory_get` vertical slice is implemented on this branch.
+The `memory_remember` → durable source/memory/audit → `memory_get` vertical slice is implemented, and this branch adds bounded generic preference observations plus deterministic pattern derivation.
 
 ## Verification authored
 
 - PlUnit domain tests for ID stability, exact text round-trip, restart durability, project isolation, global-write denial, read authority, audit emission, transactional rollback, duplicate IDs, provenance/trust, remote normalization, and session scope.
 - MCP tests for stateless `2026-07-28` discovery/tool calls, legacy `2025-11-25` compatibility, and unsupported-version error `-32022`.
+- Preference-pattern PlUnit tests cover contextual ranking, provider/domain scoping, negative feedback, read/write authority, and invalid-observation rollback.
 - Nix flake check runs the complete PlUnit suite with SWI-Prolog.
 
 ## Verification state
